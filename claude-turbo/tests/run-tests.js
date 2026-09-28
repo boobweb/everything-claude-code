@@ -59,7 +59,7 @@ async function testMCP() {
   check('repo_map filter narrows to src', !r.isError && /src\/app\.js/.test(r.text) && !/index\.html \(/.test(r.text), r.text);
 
   r = await call(c, 'file_outline', { path: 'index.html' });
-  check('file_outline: script blocks, ids, blobs, functions', /script 4/.test(r.text) && /#loading-overlay/.test(r.text) && /98% of the file/.test(r.text) && /L483\s+function\s+pickDisc\(d\)/.test(r.text), r.text);
+  check('file_outline: script blocks, ids, blobs, functions (exact line range)', /script 4/.test(r.text) && /#loading-overlay/.test(r.text) && /98% of the file/.test(r.text) && /L483-487\s+function\s+pickDisc\(d\)/.test(r.text), r.text);
   check('file_outline: class methods qualified', /Engine\.next\(\)/.test(r.text) && /Audio\.play\(name\)/.test(r.text) && /Engine\.reset\(\)/.test(r.text), r.text);
   check('file_outline: iife detected', /\(iife bootstrap\)/.test(r.text), r.text);
   r = await call(c, 'file_outline', { path: 'tools/gen.py' });

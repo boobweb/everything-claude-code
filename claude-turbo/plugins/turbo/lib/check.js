@@ -207,11 +207,14 @@ function checkHTML(text, file) {
   const blocks = all.filter((b) => b.isJS && b.content.trim());
   const errors = [];
   let checked = 0;
+  const checkers = new Set();
   const componentFile = /\.(vue|svelte|astro)$/i.test(file); // component scripts use import/export
   for (const b of blocks) {
     // Guard: `</script>` inside a JS string would have split the block early; we still check what we have.
-    const r = checkJSText(b.content, { module: b.isModule || componentFile, label: `<script #${b.index}>` });
+    // Classic <script> is parsed as a script (undefined lets .js files auto-detect; here the tag decides).
+    const r = checkJSText(b.content, { module: b.isModule || componentFile ? true : false, label: `<script #${b.index}>` });
     checked++;
+    checkers.add(r.checker);
     if (!r.ok) {
       for (const e of r.errors) {
         const line = e.line != null ? b.contentStartLine + e.line - 1 : b.startLine;
@@ -229,7 +232,7 @@ function checkHTML(text, file) {
   if (opens !== closes) errors.push({ line: null, col: null, message: `Unbalanced <script> tags: ${opens} opening, ${closes} closing` });
   const so = (text.match(/<style\b/gi) || []).length, sc = (text.match(/<\/style\s*>/gi) || []).length;
   if (so !== sc) errors.push({ line: null, col: null, message: `Unbalanced <style> tags: ${so} opening, ${sc} closing` });
-  return { ok: errors.length === 0, checker: `html (${checked} inline script${checked === 1 ? '' : 's'} via node --check)`, errors };
+  return { ok: errors.length === 0, checker: `html (${checked} inline script${checked === 1 ? '' : 's'}${checkers.size ? ` via ${[...checkers].join(', ')}` : ''})`, errors };
 }
 
 // ---------- PowerShell via the real parser ----------

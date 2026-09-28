@@ -1,7 +1,9 @@
 'use strict';
-// Language detection and heuristic symbol extraction (regex based, no parsers).
-// Goal: a compact, line-numbered outline of any source file so the model can jump
-// straight to the right place instead of reading the whole file.
+// Language detection and symbol extraction. JavaScript, Python and TypeScript go through real
+// parsers (js-ast: vendored acorn; py-ast: the interpreter's ast module; ts-ast: the project's
+// own typescript package) and fall back to the regex heuristics below when a parser is not
+// available or the file does not parse. Goal: a compact, line-numbered outline of any source
+// file so the model can jump straight to the right place instead of reading the whole file.
 
 const path = require('path');
 const fs = require('fs');
@@ -510,9 +512,16 @@ function extractCSS(lines, { lineOffset = 0, maxSymbols = 300 } = {}) {
   return { symbols: syms, truncated: syms.length >= maxSymbols, rules };
 }
 
+/** Outline many Python files in one interpreter run so later outline() calls hit the cache. */
+function primePython(files) {
+  if (!pyAst || !files || !files.length || !pyAst.available()) return;
+  try { pyAst.outlineBatch(files.filter((f) => fs.existsSync(f))); } catch { /* best effort */ }
+}
+
 /**
  * Main entry: outline for a file's text.
- * Returns { lang, symbols: [{name, kind, line, sig}], meta }
+ * Returns { lang, symbols: [{name, kind, line, endLine?, sig, mods?, exported?}], parser, ... }
+ * For callable kinds `sig` is the bare parameter list; `mods` holds modifiers (async, static, …).
  */
 function outline(text, file, opts = {}) {
   const lang = opts.lang || detectLang(file) || 'text';
@@ -587,4 +596,4 @@ function symbolEnd(lines, startLine, lang, maxLines = 4000) {
   return Math.min(lines.length, i0 + maxLines);
 }
 
-module.exports = { detectLang, outline, scriptBlocks, symbolEnd, codeOnly, CODE_LANGS, LANG_BY_EXT, stripJsonComments, lineIndexer };
+module.exports = { detectLang, outline, primePython, scriptBlocks, symbolEnd, codeOnly, CODE_LANGS, LANG_BY_EXT, stripJsonComments, lineIndexer };

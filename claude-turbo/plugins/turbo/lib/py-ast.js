@@ -40,9 +40,9 @@ for p in sys.argv[1:]:
             end = getattr(n, "end_lineno", n.lineno)
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 name = (ctx + "." + n.name) if ctx else n.name
-                decos = [unparse(d) for d in n.decorator_list][:2]
-                s = ("async " if isinstance(n, ast.AsyncFunctionDef) else "") + "(" + sig(n) + ")" + ((" @" + " @".join(decos)) if decos else "")
-                syms.append({"name": name, "kind": "method" if ctx else "function", "line": n.lineno, "endLine": end, "sig": s})
+                decos = ["@" + unparse(d) for d in n.decorator_list][:2]
+                mods = (["async"] if isinstance(n, ast.AsyncFunctionDef) else []) + decos
+                syms.append({"name": name, "kind": "method" if ctx else "function", "line": n.lineno, "endLine": end, "sig": sig(n), "mods": " ".join(mods)})
             elif isinstance(n, ast.ClassDef):
                 bases = [unparse(b) for b in n.bases]
                 syms.append({"name": n.name, "kind": "class", "line": n.lineno, "endLine": end, "sig": ("(" + ", ".join(bases) + ")") if bases else ""})

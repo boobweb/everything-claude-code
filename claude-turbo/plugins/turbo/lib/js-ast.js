@@ -13,8 +13,12 @@ const ECMA = 'latest';
  * Returns { ast, sourceType } or { error: { line, col, message }, sourceType }.
  */
 function parse(text, { module } = {}) {
-  const looksModule = module === true || (module !== false && /^\s*(import\s|import\(|export\s)/m.test(text));
-  const order = looksModule ? ['module', 'script'] : ['script', 'module'];
+  // Explicit mode (.mjs -> module, .cjs -> script, <script type=module>) is strict, like node.
+  // Unknown (.js, inline scripts): try the likelier mode first, then the other.
+  let order;
+  if (module === true) order = ['module'];
+  else if (module === false) order = ['script'];
+  else order = /^\s*(import\s|import\(|export\s)/m.test(text) ? ['module', 'script'] : ['script', 'module'];
   let firstErr = null;
   for (const sourceType of order) {
     try {
@@ -61,7 +65,9 @@ function memberName(node) {
 function isFn(n) { return n && (n.type === 'FunctionExpression' || n.type === 'ArrowFunctionExpression'); }
 
 /**
- * Walk the AST and produce symbols: [{ name, kind, line, endLine, sig, exported }].
+ * Walk the AST and produce symbols: [{ name, kind, line, endLine, sig, mods, exported }].
+ * For callables `sig` is the bare parameter list (rendered as name(sig)) and `mods` holds
+ * modifiers such as "async", "static", "*" (rendered after the signature).
  * `lineOffset` shifts line numbers (for inline scripts inside HTML).
  */
 function extractSymbols(ast, { lineOffset = 0, maxSymbols = 600 } = {}) {
@@ -71,16 +77,17 @@ function extractSymbols(ast, { lineOffset = 0, maxSymbols = 600 } = {}) {
   const push = (s) => { if (syms.length < maxSymbols) syms.push(s); };
   let imports = 0;
 
-  const fnSig = (fn) => `${fn.async ? 'async ' : ''}${fn.generator ? '*' : ''}(${paramSig(fn.params)})`;
+  const fnSig = (fn) => paramSig(fn.params);
+  const fnMods = (fn, ...extra) => [...extra, fn.async ? 'async' : '', fn.generator ? '*' : ''].filter(Boolean).join(' ');
 
   function classMembers(cls, className) {
     for (const m of cls.body.body) {
       if (m.type === 'MethodDefinition') {
         const nm = keyName(m.key, m.computed);
         const kind = m.kind === 'constructor' ? 'constructor' : m.kind === 'get' || m.kind === 'set' ? `${m.kind}ter` : 'method';
-        push({ name: `${className}.${nm}`, kind, line: L(m), endLine: E(m), sig: `${m.static ? 'static ' : ''}${fnSig(m.value)}` });
+        push({ name: `${className}.${nm}`, kind, line: L(m), endLine: E(m), sig: fnSig(m.value), mods: fnMods(m.value, m.static ? 'static' : '') });
       } else if (m.type === 'PropertyDefinition' && isFn(m.value)) {
-        push({ name: `${className}.${keyName(m.key, m.computed)}`, kind: 'method', line: L(m), endLine: E(m), sig: `${m.static ? 'static ' : ''}${fnSig(m.value)}` });
+        push({ name: `${className}.${keyName(m.key, m.computed)}`, kind: 'method', line: L(m), endLine: E(m), sig: fnSig(m.value), mods: fnMods(m.value, m.static ? 'static' : '') });
       } else if (m.type === 'PropertyDefinition' && m.static) {
         push({ name: `${className}.${keyName(m.key, m.computed)}`, kind: 'static', line: L(m), endLine: E(m), sig: '' });
       }
@@ -92,7 +99,7 @@ function extractSymbols(ast, { lineOffset = 0, maxSymbols = 600 } = {}) {
     for (const p of obj.properties) {
       if (p.type !== 'Property') continue;
       const nm = keyName(p.key, p.computed);
-      if (isFn(p.value)) { push({ name: `${objName}.${nm}`, kind: 'method', line: L(p), endLine: E(p), sig: fnSig(p.value) }); count++; }
+      if (isFn(p.value)) { push({ name: `${objName}.${nm}`, kind: 'method', line: L(p), endLine: E(p), sig: fnSig(p.value), mods: fnMods(p.value) }); count++; }
       else if (p.value && p.value.type === 'ObjectExpression' && depth < 2 && p.value.properties.some((q) => q.type === 'Property' && isFn(q.value))) objectMembers(p.value, `${objName}.${nm}`, depth + 1);
     }
     return count;
@@ -106,7 +113,7 @@ function extractSymbols(ast, { lineOffset = 0, maxSymbols = 600 } = {}) {
     const name = ctx ? `${ctx}/${d.id.name}` : d.id.name;
     const init = d.init;
     if (!init) { if (top) push({ name, kind: 'state', line: L(d), endLine: E(d), sig: 'uninitialized', exported }); return; }
-    if (isFn(init)) return push({ name, kind: 'function', line: L(d), endLine: E(d), sig: fnSig(init), exported });
+    if (isFn(init)) return push({ name, kind: 'function', line: L(d), endLine: E(d), sig: fnSig(init), mods: fnMods(init), exported });
     if (init.type === 'ClassExpression') { push({ name, kind: 'class', line: L(d), endLine: E(d), sig: init.superClass ? `extends ${memberName(init.superClass) || '…'}` : '', exported }); classMembers(init, name); return; }
     if (init.type === 'ArrayExpression') return push({ name, kind: 'array', line: L(d), endLine: E(d), sig: `${init.elements.length} items${init.elements[0] && init.elements[0].type === 'ObjectExpression' ? `, keys: ${init.elements[0].properties.filter((p) => p.type === 'Property').slice(0, 8).map((p) => keyName(p.key, p.computed)).join(',')}` : ''}`, exported });
     if (init.type === 'ObjectExpression') { push({ name, kind: 'object', line: L(d), endLine: E(d), sig: `${init.properties.length} keys`, exported }); objectMembers(init, name, 0); return; }
@@ -129,13 +136,13 @@ function extractSymbols(ast, { lineOffset = 0, maxSymbols = 600 } = {}) {
       case 'ExportDefaultDeclaration': {
         const d = node.declaration;
         if (d.type === 'FunctionDeclaration' || d.type === 'ClassDeclaration') { statement(d, { top, ctx, exported: true }); return; }
-        if (isFn(d)) return push({ name: 'default', kind: 'function', line: L(node), endLine: E(node), sig: fnSig(d), exported: true });
+        if (isFn(d)) return push({ name: 'default', kind: 'function', line: L(node), endLine: E(node), sig: fnSig(d), mods: fnMods(d), exported: true });
         if (d.type === 'ObjectExpression') { push({ name: 'default', kind: 'object', line: L(node), endLine: E(node), sig: `${d.properties.length} keys`, exported: true }); objectMembers(d, 'default', 0); return; }
         return push({ name: 'default', kind: 'export', line: L(node), endLine: E(node), sig: d.type, exported: true });
       }
       case 'FunctionDeclaration': {
         const name = ctx ? `${ctx}/${node.id ? node.id.name : 'anonymous'}` : node.id ? node.id.name : 'anonymous';
-        push({ name, kind: 'function', line: L(node), endLine: E(node), sig: fnSig(node), exported });
+        push({ name, kind: 'function', line: L(node), endLine: E(node), sig: fnSig(node), mods: fnMods(node), exported });
         // one level of nested named functions
         if (!ctx) for (const inner of node.body.body || []) if (inner.type === 'FunctionDeclaration') statement(inner, { top: false, ctx: name });
         return;
@@ -155,12 +162,13 @@ function extractSymbols(ast, { lineOffset = 0, maxSymbols = 600 } = {}) {
           const target = memberName(e.left);
           if (!target) return;
           if (isFn(e.right) || e.right.type === 'ClassExpression') {
+            const fn = isFn(e.right) ? e.right : null;
             const protoMatch = /^(.+)\.prototype\.([^.]+)$/.exec(target);
-            if (protoMatch) return push({ name: `${protoMatch[1]}.${protoMatch[2]}`, kind: 'method', line: L(node), endLine: E(node), sig: isFn(e.right) ? fnSig(e.right) : 'class' });
+            if (protoMatch) return push({ name: `${protoMatch[1]}.${protoMatch[2]}`, kind: fn ? 'method' : 'class', line: L(node), endLine: E(node), sig: fn ? fnSig(fn) : '', mods: fn ? fnMods(fn) : '' });
             const globalMatch = /^(?:window|globalThis|self|module\.exports|exports)\.(.+)$/.exec(target);
             if (/^window\.on(load|ready)$/.test(target)) return push({ name: target, kind: 'boot', line: L(node), endLine: E(node), sig: '' });
-            if (globalMatch) return push({ name: globalMatch[1], kind: isFn(e.right) ? 'function' : 'class', line: L(node), endLine: E(node), sig: `global ${isFn(e.right) ? fnSig(e.right) : ''}`.trim() });
-            return push({ name: target, kind: isFn(e.right) ? 'function' : 'class', line: L(node), endLine: E(node), sig: isFn(e.right) ? fnSig(e.right) : '' });
+            if (globalMatch) return push({ name: globalMatch[1], kind: fn ? 'function' : 'class', line: L(node), endLine: E(node), sig: fn ? fnSig(fn) : '', mods: fn ? fnMods(fn, 'global') : 'global', exported: /^(module\.exports|exports)\./.test(target) });
+            return push({ name: target, kind: fn ? 'function' : 'class', line: L(node), endLine: E(node), sig: fn ? fnSig(fn) : '', mods: fn ? fnMods(fn) : '' });
           }
           if (target === 'module.exports' && e.right.type === 'ObjectExpression') { push({ name: 'module.exports', kind: 'object', line: L(node), endLine: E(node), sig: `${e.right.properties.length} keys`, exported: true }); objectMembers(e.right, 'exports', 0); return; }
           if (/^(?:window|globalThis)\.[A-Za-z_$][\w$]*$/.test(target) && top) return push({ name: target.split('.')[1], kind: 'state', line: L(node), endLine: E(node), sig: 'global' });
@@ -169,7 +177,7 @@ function extractSymbols(ast, { lineOffset = 0, maxSymbols = 600 } = {}) {
         if (e.type === 'CallExpression') {
           const callee = e.callee;
           // IIFE: (function name(){})() or (() => {})() or (async () => {})()
-          if (isFn(callee) && top) return push({ name: callee.id ? `(iife ${callee.id.name})` : '(iife)', kind: 'iife', line: L(node), endLine: E(node), sig: callee.async ? 'async' : '' });
+          if (isFn(callee) && top) return push({ name: callee.id ? `(iife ${callee.id.name})` : '(iife)', kind: 'iife', line: L(node), endLine: E(node), sig: '', mods: fnMods(callee) });
           const cname = memberName(callee);
           if (cname && /^(document|window|globalThis)\.addEventListener$/.test(cname) && e.arguments[0] && e.arguments[0].type === 'Literal') {
             const ev = String(e.arguments[0].value);

@@ -28,25 +28,29 @@ function outlineTS(text, file, { root, maxSymbols = 600 } = {}) {
   const push = (s) => { if (syms.length < maxSymbols) syms.push(s); };
   const nameOf = (n) => (n && n.name ? n.name.getText(sf) : null);
   const isExported = (n) => !!(ts.getCombinedModifierFlags(n) & ts.ModifierFlags.Export);
+  // Same symbol shape as js-ast: sig = bare parameter list, mods = modifiers and the return type.
   const params = (n) => (n.parameters || []).map((p) => p.name.getText(sf) + (p.questionToken ? '?' : '')).join(', ');
-  const sigOf = (n) => `(${params(n)})${n.type ? `: ${n.type.getText(sf).slice(0, 30)}` : ''}`;
+  const sigOf = (n) => params(n);
+  const isStatic = (n) => !!(ts.getCombinedModifierFlags(n) & ts.ModifierFlags.Static);
+  const isAsync = (n) => !!(ts.getCombinedModifierFlags(n) & ts.ModifierFlags.Async);
+  const modsOf = (n, ...extra) => [...extra, isStatic(n) ? 'static' : '', isAsync(n) ? 'async' : '', n.type ? `: ${n.type.getText(sf).slice(0, 30)}` : ''].filter(Boolean).join(' ');
   let imports = 0;
 
   function members(node, owner) {
     for (const m of node.members || []) {
       const nm = nameOf(m);
       if (!nm) continue;
-      if (ts.isMethodDeclaration(m) || ts.isMethodSignature(m)) push({ name: `${owner}.${nm}`, kind: 'method', line: line(m.getStart(sf)), endLine: line(m.end), sig: sigOf(m) });
-      else if (ts.isConstructorDeclaration(m)) push({ name: `${owner}.constructor`, kind: 'constructor', line: line(m.getStart(sf)), endLine: line(m.end), sig: sigOf(m) });
+      if (ts.isMethodDeclaration(m) || ts.isMethodSignature(m)) push({ name: `${owner}.${nm}`, kind: 'method', line: line(m.getStart(sf)), endLine: line(m.end), sig: sigOf(m), mods: modsOf(m) });
+      else if (ts.isConstructorDeclaration(m)) push({ name: `${owner}.constructor`, kind: 'constructor', line: line(m.getStart(sf)), endLine: line(m.end), sig: sigOf(m), mods: '' });
       else if (ts.isGetAccessor(m) || ts.isSetAccessor(m)) push({ name: `${owner}.${nm}`, kind: ts.isGetAccessor(m) ? 'getter' : 'setter', line: line(m.getStart(sf)), endLine: line(m.end), sig: '' });
-      else if (ts.isPropertyDeclaration(m) && m.initializer && (ts.isArrowFunction(m.initializer) || ts.isFunctionExpression(m.initializer))) push({ name: `${owner}.${nm}`, kind: 'method', line: line(m.getStart(sf)), endLine: line(m.end), sig: sigOf(m.initializer) });
+      else if (ts.isPropertyDeclaration(m) && m.initializer && (ts.isArrowFunction(m.initializer) || ts.isFunctionExpression(m.initializer))) push({ name: `${owner}.${nm}`, kind: 'method', line: line(m.getStart(sf)), endLine: line(m.end), sig: sigOf(m.initializer), mods: modsOf(m.initializer, isStatic(m) ? 'static' : '') });
     }
   }
 
   function visit(node, ctx) {
     const start = () => line(node.getStart(sf));
     if (ts.isImportDeclaration(node) || ts.isImportEqualsDeclaration(node)) { imports++; return; }
-    if (ts.isFunctionDeclaration(node) && node.name) { push({ name: ctx ? `${ctx}/${nameOf(node)}` : nameOf(node), kind: 'function', line: start(), endLine: line(node.end), sig: sigOf(node), exported: isExported(node) }); return; }
+    if (ts.isFunctionDeclaration(node) && node.name) { push({ name: ctx ? `${ctx}/${nameOf(node)}` : nameOf(node), kind: 'function', line: start(), endLine: line(node.end), sig: sigOf(node), mods: modsOf(node), exported: isExported(node) }); return; }
     if (ts.isClassDeclaration(node)) { const nm = nameOf(node) || 'AnonymousClass'; push({ name: nm, kind: 'class', line: start(), endLine: line(node.end), sig: node.heritageClauses ? node.heritageClauses.map((h) => h.getText(sf)).join(' ').slice(0, 40) : '', exported: isExported(node) }); members(node, nm); return; }
     if (ts.isInterfaceDeclaration(node)) { push({ name: nameOf(node), kind: 'interface', line: start(), endLine: line(node.end), sig: `${node.members.length} members`, exported: isExported(node) }); return; }
     if (ts.isTypeAliasDeclaration(node)) { push({ name: nameOf(node), kind: 'type', line: start(), endLine: line(node.end), sig: '', exported: isExported(node) }); return; }
@@ -59,9 +63,9 @@ function outlineTS(text, file, { root, maxSymbols = 600 } = {}) {
         const init = d.initializer;
         const s = { line: line(d.getStart(sf)), endLine: line(d.end), exported };
         if (!init) { if (!ctx) push({ ...s, name: nm, kind: 'state', sig: d.type ? `: ${d.type.getText(sf).slice(0, 30)}` : '' }); continue; }
-        if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) push({ ...s, name: nm, kind: 'function', sig: sigOf(init) });
+        if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) push({ ...s, name: nm, kind: 'function', sig: sigOf(init), mods: modsOf(init) });
         else if (ts.isArrayLiteralExpression(init)) push({ ...s, name: nm, kind: 'array', sig: `${init.elements.length} items` });
-        else if (ts.isObjectLiteralExpression(init)) { push({ ...s, name: nm, kind: 'object', sig: `${init.properties.length} keys` }); for (const p of init.properties) if (ts.isMethodDeclaration(p) || (ts.isPropertyAssignment(p) && p.initializer && (ts.isArrowFunction(p.initializer) || ts.isFunctionExpression(p.initializer)))) push({ name: `${nm}.${p.name.getText(sf)}`, kind: 'method', line: line(p.getStart(sf)), endLine: line(p.end), sig: '' }); }
+        else if (ts.isObjectLiteralExpression(init)) { push({ ...s, name: nm, kind: 'object', sig: `${init.properties.length} keys` }); for (const p of init.properties) if (ts.isMethodDeclaration(p) || (ts.isPropertyAssignment(p) && p.initializer && (ts.isArrowFunction(p.initializer) || ts.isFunctionExpression(p.initializer)))) { const fn = ts.isMethodDeclaration(p) ? p : p.initializer; push({ name: `${nm}.${p.name.getText(sf)}`, kind: 'method', line: line(p.getStart(sf)), endLine: line(p.end), sig: sigOf(fn), mods: modsOf(fn) }); } }
         else if (ts.isClassExpression(init)) { push({ ...s, name: nm, kind: 'class', sig: '' }); members(init, nm); }
         else if (!ctx && /^[A-Z][A-Z0-9_]{2,}$/.test(nm)) push({ ...s, name: nm, kind: 'const', sig: init.getText(sf).slice(0, 30) });
         else if (!ctx && ts.isNewExpression(init)) push({ ...s, name: nm, kind: 'state', sig: `new ${init.expression.getText(sf).slice(0, 30)}` });

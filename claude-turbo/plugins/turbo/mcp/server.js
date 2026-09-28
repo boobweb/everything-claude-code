@@ -117,10 +117,32 @@ function cap(text, maxChars) {
   return text.slice(0, m) + `\n…[output truncated at ${m.toLocaleString('en-US')} chars; narrow the request (path, filter, line range) or raise max_chars]`;
 }
 
+const CALLABLE = new Set(['function', 'method', 'constructor', 'getter', 'setter']);
+
+/** Compact one-token form used by repo_map: name(params) for callables, "kind name sig" otherwise. */
 function fmtSym(s, withLine = true) {
-  const sig = s.sig ? (['function', 'method', 'constructor'].includes(s.kind) ? `(${s.sig})` : ` ${s.sig}`) : (['function', 'method', 'constructor'].includes(s.kind) ? '()' : '');
+  const sig = CALLABLE.has(s.kind) ? `(${s.sig || ''})` : s.sig ? ` ${s.sig}` : '';
   const kind = ['function', 'method', 'id', 'key', 'value'].includes(s.kind) ? '' : `${s.kind} `;
   return `${withLine ? `L${s.line} ` : ''}${kind}${s.name}${sig}`;
+}
+
+/** Full form used by file_outline: "name(params) mods" or "name  sig", with "export" folded into mods. */
+function fmtSymFull(s) {
+  const mods = [s.exported ? 'export' : '', s.mods || ''].filter(Boolean).join(' ');
+  if (CALLABLE.has(s.kind)) return `${s.name}(${s.sig || ''})${mods ? `  ${mods}` : ''}`;
+  const tail = [s.sig || '', mods].filter(Boolean).join('  ');
+  return `${s.name}${tail ? `  ${tail}` : ''}`;
+}
+
+/** "L12" or "L12-40" when the parser knows the exact end line. */
+function lineRange(s) {
+  return s.endLine && s.endLine > s.line ? `L${s.line}-${s.endLine}` : `L${s.line}`;
+}
+
+function parserLabel(o) {
+  if (!o.parser || o.parser === 'heuristic') return 'heuristic (regex)';
+  if (o.parser === 'acorn') return `acorn${o.sourceType ? `, ${o.sourceType}` : ''}`;
+  return o.parser;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +193,8 @@ function toolRepoMap(a) {
   let bytesRead = 0;
   const maxChars = Number(a.max_chars) || DEFAULT_MAX_CHARS;
   const perFileSyms = shown.length > 40 ? 6 : shown.length > 20 ? 10 : 16;
+  // one python process outlines every .py file shown (instead of one process per file)
+  if (withSymbols) lang.primePython(shown.filter((f) => lang.detectLang(f.name) === 'python').map((f) => f.abs));
   for (let i = 0; i < shown.length; i++) {
     const f = shown[i];
     let line = `${f.rel} (${fsx.humanSize(f.size)}`;
@@ -232,17 +256,19 @@ function toolFileOutline(a) {
   }
   const groups = new Map();
   for (const s of syms) groups.set(s.kind, (groups.get(s.kind) || 0) + 1);
-  out.push(`Symbols: ${syms.length}${o.truncated ? '+ (truncated; raise max_symbols)' : ''} — ${[...groups.entries()].map(([k, n]) => `${k} ${n}`).join(', ')}${o.imports ? `; ${o.imports} import/require lines` : ''}`);
+  const exact = syms.some((s) => s.endLine);
+  out.push(`Symbols: ${syms.length}${o.truncated ? '+ (truncated; raise max_symbols)' : ''} — ${[...groups.entries()].map(([k, n]) => `${k} ${n}`).join(', ')}${o.imports ? `; ${o.imports} import/require lines` : ''}; parser: ${parserLabel(o)}${exact ? ' (line ranges are exact)' : ''}`);
   out.push('');
-  const width = String(syms[syms.length - 1].line).length;
   const idKind = a.include_ids === false ? new Set(['id']) : new Set();
+  const rows = [];
   let idsShown = 0;
   for (const s of syms) {
     if (idKind.has(s.kind)) continue;
     if (s.kind === 'id') { idsShown++; if (idsShown > (a.include_ids ? 1000 : 60)) continue; }
-    const callable = ['function', 'method', 'constructor'].includes(s.kind);
-    out.push(`L${String(s.line).padEnd(width)}  ${s.kind.padEnd(11)} ${s.name}${callable ? `(${s.sig || ''})` : s.sig ? `  ${s.sig}` : ''}`);
+    rows.push([lineRange(s), s.kind, fmtSymFull(s)]);
   }
+  const width = rows.reduce((w, r) => Math.max(w, r[0].length), 2);
+  for (const r of rows) out.push(`${r[0].padEnd(width)}  ${r[1].padEnd(11)} ${r[2]}`);
   if (idsShown > 60 && !a.include_ids) out.push(`…(${idsShown - 60} more element ids hidden; pass include_ids: true to list all)`);
   return cap(out.join('\n'), a.max_chars);
 }
@@ -299,6 +325,7 @@ function toolFindSymbol(a) {
 
   const hits = [];
   let bytes = 0;
+  lang.primePython(files.filter((f) => lang.detectLang(f.name) === 'python').map((f) => f.abs));
   for (const f of files) {
     if (bytes > 200 * 1024 * 1024) break;
     let e;
@@ -313,10 +340,11 @@ function toolFindSymbol(a) {
     const lines = text.split(/\r?\n/);
     const l = h.entry.outline.lang;
     let end = h.sym.line;
-    if (a.body !== false) end = lang.symbolEnd(lines, h.sym.line, l === 'html' ? 'js' : l, Math.max(maxBody, 5000));
+    // exact end line from a real parser when available, else bracket/indent matching
+    if (a.body !== false) end = h.sym.endLine && h.sym.endLine >= h.sym.line ? Math.min(h.sym.endLine, lines.length) : lang.symbolEnd(lines, h.sym.line, l === 'html' ? 'js' : l, Math.max(maxBody, 5000));
     const shownEnd = Math.min(end, h.sym.line + maxBody - 1);
     const f = fold.formatLines(lines.slice(h.sym.line - 1, shownEnd), h.sym.line, { over: 400, keep: 120 });
-    out.push('', `## ${h.rel}:${h.sym.line}${end !== h.sym.line ? `-${end}` : ''}  ${h.sym.kind} ${h.sym.name}${h.sym.sig ? ` (${h.sym.sig})` : ''}${shownEnd < end ? `  [body truncated at ${maxBody} lines; use read_range ${shownEnd + 1}-${end}]` : ''}`);
+    out.push('', `## ${h.rel}:${h.sym.line}${end !== h.sym.line ? `-${end}` : ''}  ${h.sym.kind} ${fmtSymFull(h.sym)}${shownEnd < end ? `  [body truncated at ${maxBody} lines; use read_range ${shownEnd + 1}-${end}]` : ''}`);
     if (a.body !== false) out.push(f.text);
   }
   if (hits.length > maxResults) out.push('', `Other locations: ${hits.slice(maxResults, maxResults + 30).map((h) => `${h.rel}:${h.sym.line} (${h.sym.kind})`).join(', ')}`);
