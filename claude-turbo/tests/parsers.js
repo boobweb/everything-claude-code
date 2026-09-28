@@ -97,6 +97,16 @@ function run(check, { PLUGIN, FIX, DATA }) {
   check('check: import inside a classic <script> is an error mapped to the html line', !htmlBad.ok && htmlBad.errors[0].line === 2, JSON.stringify(htmlBad));
   const htmlMod = checkLib.checkHTML('<script type="module">\nimport x from "./y.js";\n</script>', 'p.html');
   check('check: import inside <script type=module> is fine', htmlMod.ok, JSON.stringify(htmlMod));
+  check('check: a "<style" inside a JS string does not count as a tag', checkLib.checkHTML('<script>if (s.startsWith("<style")) x();</script>', 'p.html').ok);
+  const commented = checkLib.checkHTML('<!-- <script>function broken( {</script> -->\n<script>ok();</script>', 'p.html');
+  check('check: a commented-out <script> is neither checked nor paired with the real closer', commented.ok && /1 inline script/.test(commented.checker), JSON.stringify(commented));
+  check('check: a commented-out <script src> does not hide the real inline script', !checkLib.checkHTML('<!-- <script src="old.js"> -->\n<script>function broken( {</script>', 'p.html').ok);
+  check('check: data-src is not src: the inline script is still checked', !checkLib.checkHTML('<script data-src="lazy.js">function f( {</script>', 'p.html').ok);
+  check('check: top-level return in a classic <script> is an error; in .cjs it is fine', !checkLib.checkHTML('<script>\nreturn 1;\n</script>', 'p.html').ok && checkLib.checkJSSource('return 1;', { module: false }).ok);
+  const idO = lang.outline('<!-- <div id="ghost"></div> -->\n<div data-id="5" id="real"></div>', 'p.html');
+  check('outline: data-id is not an id and commented-out ids are skipped', idO.symbols.some((s) => s.name === '#real') && !idO.symbols.some((s) => s.name === '#5' || s.name === '#ghost'), JSON.stringify(idO.symbols));
+  const ls = jsAst.outlineJS('const s = "a\u2028b";\nfunction f() {}');
+  check('js-ast: U+2028 inside a string does not shift line numbers (matches Read/read_range)', byName(ls, 'f') && byName(ls, 'f').line === 2, JSON.stringify(ls.symbols));
 
   // ---- py-ast: exact outline via the interpreter's ast module ----
   if (!pyAst.available()) console.log('  skip python 3 not found: py-ast exact outline tests');

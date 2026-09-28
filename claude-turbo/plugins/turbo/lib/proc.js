@@ -47,7 +47,7 @@ function pythonCmd() {
   const candidates = process.platform === 'win32' ? [['py', ['-3']], ['python', []], ['python3', []]] : [['python3', []], ['python', []]];
   pyCache = null;
   for (const [cmd, pre] of candidates) {
-    const r = run(cmd, [...pre, '-c', 'import sys;print(sys.version_info[0])'], { timeout: 6000 });
+    const r = run(cmd, [...pre, '-c', 'import sys;print(sys.version_info[0])'], { timeout: 4000 });
     if (!r.error && r.status === 0 && r.stdout.trim().startsWith('3')) { pyCache = { cmd, pre }; break; }
   }
   saveProbe('python', pyCache);
@@ -61,7 +61,7 @@ function powershellCmd() {
   if (cached.powershell !== undefined) { psCache = cached.powershell; return psCache; }
   psCache = null;
   for (const c of ['pwsh', 'powershell']) {
-    const r = run(c, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.Major'], { timeout: 8000 });
+    const r = run(c, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.Major'], { timeout: 6000 });
     if (!r.error && r.status === 0) { psCache = c; break; }
   }
   saveProbe('powershell', psCache);

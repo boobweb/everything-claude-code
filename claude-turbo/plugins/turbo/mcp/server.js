@@ -284,6 +284,7 @@ function toolReadRange(a) {
   const maxLines = Math.min(2000, Math.max(1, Number(a.max_lines) || 400));
   let start = Math.max(1, Number(a.start_line) || 1);
   let end = Number(a.end_line) ? Number(a.end_line) : start + Math.min(maxLines, 200) - 1;
+  if (end < start) end = start; // end_line below start_line (or negative) means "just that line"
   if (end - start + 1 > maxLines) end = start + maxLines - 1;
   if (start > total) throw new Error(`start_line ${start} is past the end of the file (${total} lines)`);
   end = Math.min(end, total);
@@ -319,7 +320,7 @@ function toolFindSymbol(a) {
     // cheap pre-filter: skip files that don't even contain the identifier text (bounded read)
     files = files.filter((f) => {
       if (f.size > 8 * 1024 * 1024) return true;
-      try { return fs.readFileSync(f.abs, 'utf8').includes(name.split('.').pop()); } catch { return false; }
+      try { return fs.readFileSync(f.abs, 'utf8').includes(name.replace(/^#/, '').split('.').pop()); } catch { return false; } // "#overlay" is stored as id="overlay"
     });
     if (files.length > 400) files = files.slice(0, 400);
   } else throw new Error(`Path not found: ${fsx.toPosix(target)}`);

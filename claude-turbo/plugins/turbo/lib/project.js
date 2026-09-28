@@ -49,10 +49,14 @@ function update(root, sessionId, fn) {
   if (sessionId) {
     s = p.sessions[sessionId] || (p.sessions[sessionId] = { startedAt: Date.now(), edited: {}, clean: null });
     s.updatedAt = Date.now();
+    s.seq = p.seq = (p.seq || 0) + 1; // ms timestamps tie within one process; seq breaks the tie deterministically
   }
   try { fn(p, s); } catch { /* keep the record consistent even if the caller throws */ }
-  const ids = Object.keys(p.sessions).sort((a, b) => (p.sessions[b].updatedAt || 0) - (p.sessions[a].updatedAt || 0));
-  for (const id of ids.slice(MAX_SESSIONS)) delete p.sessions[id];
+  // keep the most useful sessions: ones that edited something outrank empty ones, then newest first; never the current one
+  const edits = (id) => Object.keys((p.sessions[id] && p.sessions[id].edited) || {}).length;
+  const newer = (a, b) => ((p.sessions[b].updatedAt || 0) - (p.sessions[a].updatedAt || 0)) || ((p.sessions[b].seq || 0) - (p.sessions[a].seq || 0));
+  const ids = Object.keys(p.sessions).filter((id) => id !== sessionId).sort((a, b) => (Number(edits(b) > 0) - Number(edits(a) > 0)) || newer(a, b));
+  for (const id of ids.slice(sessionId ? MAX_SESSIONS - 1 : MAX_SESSIONS)) delete p.sessions[id];
   save(root, p);
   return p;
 }
@@ -87,7 +91,7 @@ function recordStop(root, sessionId, brokenRel) {
 function lastSession(p, sessionId) {
   const c = Object.entries(p.sessions)
     .filter(([id, s]) => id !== sessionId && s && Object.keys(s.edited || {}).length)
-    .sort((a, b) => (b[1].updatedAt || 0) - (a[1].updatedAt || 0));
+    .sort((a, b) => ((b[1].updatedAt || 0) - (a[1].updatedAt || 0)) || ((b[1].seq || 0) - (a[1].seq || 0)));
   return c.length ? { id: c[0][0], ...c[0][1] } : null;
 }
 

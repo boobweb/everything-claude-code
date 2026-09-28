@@ -5,7 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { scriptBlocks, stripJsonComments } = require('./lang');
+const { scanHtml, stripJsonComments } = require('./lang');
 const fsx = require('./fsx');
 
 const MAX_CHECK_BYTES = 64 * 1024 * 1024; // above this we skip (would be too slow)
@@ -75,10 +75,12 @@ function nodeConfirm(text, module, timeout) {
  * JSX/Flow-looking files are skipped instead of reported, since neither parser can judge them.
  * module: true (.mjs / <script type=module>), false (.cjs / classic <script>), undefined (.js: either).
  */
-function checkJSSource(text, { module, label, timeout } = {}) {
+function checkJSSource(text, { module, label, timeout, allowReturn } = {}) {
   if (jsAst) {
-    const a = jsAst.checkJS(text, { module });
+    const a = jsAst.checkJS(text, { module, allowReturn });
     if (a.ok) return { ok: true, checker: 'acorn', errors: [] };
+    // a top-level return in a classic <script> is a browser error that node's CommonJS wrapper would accept: no confirmation
+    if (allowReturn === false && /'return' outside of function/.test(a.error.message)) return { ok: false, checker: 'acorn', errors: [{ ...a.error, label }] };
     const confirm = nodeConfirm(text, module, timeout);
     if (confirm === 'ok') return { ok: true, checker: 'node --check (acorn disagreed)', errors: [] };
     if (JSX_LIKE.test(text)) return { ok: true, checker: 'acorn', skipped: 'looks like JSX or Flow, which plain JavaScript parsers cannot check', errors: [] };
@@ -92,8 +94,8 @@ function checkJSSource(text, { module, label, timeout } = {}) {
   return { ok: false, checker: 'node --check', errors: [{ ...(r.error || { line: null, col: null, message: 'syntax error' }), label }] };
 }
 
-function checkJSText(text, { module = false, label = 'inline script', timeout } = {}) {
-  return checkJSSource(text, { module, label, timeout });
+function checkJSText(text, { module = false, label = 'inline script', timeout, allowReturn } = {}) {
+  return checkJSSource(text, { module, label, timeout, allowReturn });
 }
 
 function checkJSFile(file, timeout) {
@@ -222,7 +224,7 @@ function checkCSS(text) {
 
 // ---------- HTML: check every inline script, report with HTML line numbers ----------
 function checkHTML(text, file, timeout) {
-  const all = scriptBlocks(text);
+  const { blocks: all, inComment } = scanHtml(text);
   const blocks = all.filter((b) => b.isJS && b.content.trim());
   const errors = [];
   let checked = 0;
@@ -231,7 +233,7 @@ function checkHTML(text, file, timeout) {
   for (const b of blocks) {
     // Guard: `</script>` inside a JS string would have split the block early; we still check what we have.
     // Classic <script> is parsed as a script (undefined lets .js files auto-detect; here the tag decides).
-    const r = checkJSText(b.content, { module: b.isModule || componentFile ? true : false, label: `<script #${b.index}>`, timeout });
+    const r = checkJSText(b.content, { module: b.isModule || componentFile ? true : false, label: `<script #${b.index}>`, timeout, allowReturn: false });
     checked++;
     checkers.add(r.checker);
     if (!r.ok) {
@@ -241,15 +243,13 @@ function checkHTML(text, file, timeout) {
       }
     }
   }
-  // Cheap structural sanity: unclosed <script>/<style> tags, counting only tags outside script content
-  // (a JS string such as "<script src=x><\/script>" must not count)
-  const insideScript = (idx) => all.some((b) => idx >= b.contentStart && idx < b.contentEnd);
-  let opens = 0, closes = 0, mm;
-  const openRe = /<script\b/gi, closeRe = /<\/script\s*>/gi;
-  while ((mm = openRe.exec(text))) if (!insideScript(mm.index)) opens++;
-  while ((mm = closeRe.exec(text))) if (!insideScript(mm.index)) closes++;
+  // Cheap structural sanity: unclosed <script>/<style> tags, counting only tags outside script content and
+  // outside HTML comments (a JS string such as "<script src=x><\/script>" or '<style' must not count)
+  const skip = (idx) => inComment(idx) || all.some((b) => idx >= b.contentStart && idx < b.contentEnd);
+  const count = (re) => { let k = 0, mm; re.lastIndex = 0; while ((mm = re.exec(text))) if (!skip(mm.index)) k++; return k; };
+  const opens = count(/<script\b/gi), closes = count(/<\/script\s*>/gi);
   if (opens !== closes) errors.push({ line: null, col: null, message: `Unbalanced <script> tags: ${opens} opening, ${closes} closing` });
-  const so = (text.match(/<style\b/gi) || []).length, sc = (text.match(/<\/style\s*>/gi) || []).length;
+  const so = count(/<style\b/gi), sc = count(/<\/style\s*>/gi);
   if (so !== sc) errors.push({ line: null, col: null, message: `Unbalanced <style> tags: ${so} opening, ${sc} closing` });
   return { ok: errors.length === 0, checker: `html (${checked} inline script${checked === 1 ? '' : 's'}${checkers.size ? ` via ${[...checkers].join(', ')}` : ''})`, errors };
 }

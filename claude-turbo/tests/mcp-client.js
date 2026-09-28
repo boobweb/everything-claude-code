@@ -36,7 +36,7 @@ function connect(serverPath, root, { env = {} } = {}) {
   });
   const notify = (method, params) => p.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, ...(params ? { params } : {}) }) + '\n');
   const raw = (line) => p.stdin.write(line + '\n');
-  const close = () => new Promise((res) => { p.on('exit', res); p.stdin.end(); setTimeout(() => { try { p.kill(); } catch { /* */ } res(); }, 3000); });
+  const close = () => new Promise((res) => { p.on('exit', (code) => res(code)); p.stdin.end(); setTimeout(() => { try { p.kill(); } catch { /* */ } res(null); }, 3000); });
   return { p, send, notify, raw, close, inbound, stderr: () => stderr };
 }
 

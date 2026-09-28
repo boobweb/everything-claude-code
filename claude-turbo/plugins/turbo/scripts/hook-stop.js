@@ -15,7 +15,7 @@ const project = require('../lib/project');
 
 // Hard cap: the user is waiting at the end of every turn. Files past the budget are skipped and
 // reported as such (acorn checks are milliseconds; PowerShell/Python spawns are the slow ones).
-const TIME_BUDGET_MS = 12000;
+const TIME_BUDGET_MS = 12000; // hooks.json allows 30 s: the extra covers the once-a-day python/PowerShell probes
 const MAX_FILES = 40;
 
 io.main(async (input) => {

@@ -53,7 +53,7 @@ function normPath(p, base) {
   // A Windows-style relative path handed to a POSIX host (backslashes, no slashes) is almost
   // certainly a path, not a filename containing backslashes.
   if (process.platform !== 'win32' && s.includes('\\') && !s.includes('/')) s = s.replace(/\\/g, '/');
-  if (s.startsWith('~/') || s === '~') s = path.join(os.homedir(), s.slice(1));
+  if (/^~([\\/]|$)/.test(s)) s = path.join(os.homedir(), s.slice(1)); // ~, ~/x and ~\x (PowerShell expands ~ the same way)
   // Git Bash style /c/Users/... -> C:/Users/...
   if (process.platform === 'win32') {
     const m = /^\/([a-zA-Z])\/(.*)$/.exec(s);

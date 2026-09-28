@@ -81,13 +81,15 @@ function tokens(seg) {
 }
 
 function splitSegments(cmd) {
-  // split on ; && || | newline (not inside quotes)
+  // split on ; && || | newline (not inside quotes); a # that starts a word begins a comment that ends at the
+  // line, so an apostrophe inside a comment ("# don't") cannot swallow the commands on the following lines
   const segs = [];
   let cur = '', q = null, prevPipe = false;
   const push = (pipe) => { if (cur.trim()) segs.push({ text: cur.trim(), afterPipe: prevPipe }); cur = ''; prevPipe = pipe; };
   for (let i = 0; i < cmd.length; i++) {
     const c = cmd[i];
     if (q) { cur += c; if (c === q) q = null; continue; }
+    if (c === '#' && (cur === '' || /[\s;&|(]$/.test(cur))) { while (i + 1 < cmd.length && cmd[i + 1] !== '\n') i++; continue; }
     if (c === '"' || c === "'") { q = c; cur += c; continue; }
     if (c === '\n' || c === ';') { push(false); continue; }
     if (c === '&' && cmd[i + 1] === '&') { push(false); i++; continue; }
@@ -147,7 +149,9 @@ function deleteGuard(cmd, ctx) {
     const rest = toks.slice(1);
     const flags = rest.filter((t) => /^(-|\/[a-zA-Z]$)/.test(t));
     const isCmd = name === 'rd' || name === 'rmdir' || name === 'del' || name === 'erase';
-    let recursive = flags.some((f) => /^--recursive$|^-recurse$|^-r$|^-[a-zA-Z]*[rR][a-zA-Z]*$/i.test(f) || (isCmd && /^\/s$/i.test(f)));
+    // --recursive, -r/-R alone or in a short POSIX bundle (-rf, -Rf, -rfv), PowerShell -Recurse and its prefixes (-Rec), cmd /s;
+    // long PowerShell switches that merely contain an r (-Force, -Verbose, -ErrorAction) are not recursion
+    let recursive = flags.some((f) => /^--recursive$/i.test(f) || /^-rec(u(r(s(e)?)?)?)?(:\$?true)?$/i.test(f) || (/^-[a-zA-Z]{1,4}$/.test(f) && /r/i.test(f)) || (isCmd && /^\/s$/i.test(f)));
     let targets = [];
     for (let k = 0; k < rest.length; k++) {
       const t = rest[k];

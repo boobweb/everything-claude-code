@@ -12,7 +12,9 @@ const ECMA = 'latest';
  * Parse text as a module or a classic script, trying the more likely mode first.
  * Returns { ast, sourceType } or { error: { line, col, message }, sourceType }.
  */
-function parse(text, { module } = {}) {
+function parse(text, { module, allowReturn } = {}) {
+  // acorn counts U+2028/U+2029 as line terminators; Read/Edit and read_range do not, so neutralize them to keep line numbers aligned
+  text = text.replace(/[\u2028\u2029]/g, ' ');
   // Explicit mode (.mjs -> module, .cjs -> script, <script type=module>) is strict, like node.
   // Unknown (.js, inline scripts): try the likelier mode first, then the other.
   let order;
@@ -22,7 +24,7 @@ function parse(text, { module } = {}) {
   let firstErr = null;
   for (const sourceType of order) {
     try {
-      const ast = acorn.parse(text, { ecmaVersion: ECMA, sourceType, locations: true, allowHashBang: true, allowReturnOutsideFunction: sourceType === 'script', allowAwaitOutsideFunction: sourceType === 'module' });
+      const ast = acorn.parse(text, { ecmaVersion: ECMA, sourceType, locations: true, allowHashBang: true, allowReturnOutsideFunction: sourceType === 'script' && allowReturn !== false, allowAwaitOutsideFunction: sourceType === 'module' });
       return { ast, sourceType };
     } catch (e) {
       const err = { line: e.loc ? e.loc.line : null, col: e.loc ? e.loc.column + 1 : null, message: `SyntaxError: ${String(e.message).replace(/\s*\(\d+:\d+\)\s*$/, '')}` };
@@ -210,8 +212,8 @@ function outlineJS(text, { lineOffset = 0, maxSymbols = 600, module } = {}) {
 }
 
 /** In-process syntax check. Returns { ok, error: {line,col,message}|null, sourceType }. */
-function checkJS(text, { module } = {}) {
-  const r = parse(text, { module });
+function checkJS(text, { module, allowReturn } = {}) {
+  const r = parse(text, { module, allowReturn });
   if (r.ast) return { ok: true, error: null, sourceType: r.sourceType };
   return { ok: false, error: r.error, sourceType: r.sourceType };
 }

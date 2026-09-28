@@ -96,6 +96,10 @@ async function testMCP() {
   check('read_range fold:false with raised max_chars returns the whole line', r.text.length > 160000 && !/output truncated/.test(r.text), String(r.text.length));
   r = await call(c, 'read_range', { path: 'src/app.js', start_line: 9999 });
   check('read_range past EOF -> error', r.isError && /past the end/.test(r.text), r.text);
+  r = await call(c, 'read_range', { path: 'src/app.js', start_line: 10, end_line: 5 });
+  check('read_range end below start returns just the start line', /lines 10-10 of/.test(r.text) && /^10│/m.test(r.text) && !/^11│/m.test(r.text), r.text);
+  r = await call(c, 'read_range', { path: 'src/app.js', start_line: 1, end_line: -3 });
+  check('read_range negative end is treated as the start line', /lines 1-1 of/.test(r.text), r.text);
 
   r = await call(c, 'find_symbol', { name: 'pickDisc' });
   check('find_symbol returns body with line numbers', /index\.html:483-487/.test(r.text) && /483│ function pickDisc\(d\)/.test(r.text), r.text);
@@ -109,6 +113,8 @@ async function testMCP() {
   check('find_symbol python method body via exact range', (/svc\.py:11-13/.test(r.text) && /async def fetch/.test(r.text)) || !pyExact, r.text);
   r = await call(c, 'find_symbol', { name: 'nonexistent_symbol_xyz' });
   check('find_symbol no match message', /No symbol matching/.test(r.text), r.text);
+  r = await call(c, 'find_symbol', { name: '#btn-neuro' });
+  check('find_symbol "#id" form works from the project root (pre-filter strips the #)', /index\.html:19/.test(r.text) && /id #btn-neuro/.test(r.text), r.text);
 
   r = await call(c, 'search', { pattern: 'getElementById', context: 1 });
   check('search finds matches with context', /3 matches in 1 file/.test(r.text) && /479:/.test(r.text) && /478-/.test(r.text), r.text);
@@ -119,7 +125,8 @@ async function testMCP() {
   r = await call(c, 'search', { pattern: 'zzz_no_such_text_zzz' });
   check('search no matches', /0 matches/.test(r.text) && /no matches/.test(r.text), r.text);
 
-  r = await call(c, 'syntax_check', { paths: ['broken/bad.js', 'broken/bad.json', 'broken/bad.py', 'broken/bad.css', 'broken/bad.html', 'broken/bad.sh', 'broken/bad.svg', 'index.html', 'src/app.js', 'src/util.mjs', 'data/questions.json', 'src/types.ts'] });
+  r = await call(c, 'syntax_check', { paths: ['broken/bad.js', 'broken/bad.json', 'broken/bad.py', 'broken/bad.css', 'broken/bad.html', 'broken/bad.sh', 'broken/bad.svg', 'broken/bad.ps1', 'deploy.ps1', 'index.html', 'src/app.js', 'src/util.mjs', 'data/questions.json', 'src/types.ts'] });
+  check('syntax_check ps1: real parser flags bad.ps1 and passes deploy.ps1, or both skipped when no PowerShell', (/bad\.ps1:\d+:\d+/.test(r.text) && /deploy\.ps1: OK \(powershell parser/.test(r.text)) || (/bad\.ps1: not checked \(no PowerShell/.test(r.text) && /deploy\.ps1: not checked/.test(r.text)), r.text);
   check('syntax_check flags bad.js line 4', /bad\.js:4:1\s+SyntaxError/.test(r.text), r.text);
   check('syntax_check flags bad.json with position', /bad\.json:3:14\s+Trailing comma/.test(r.text), r.text);
   check('syntax_check flags bad.py', /bad\.py:1:\d+\s+SyntaxError/.test(r.text) || /bad\.py: not checked/.test(r.text), r.text);
@@ -155,8 +162,8 @@ async function testMCP() {
   c.raw(JSON.stringify({ jsonrpc: '2.0', method: 'tools/list' }));
   await new Promise((res) => setTimeout(res, 150));
   check('id-less tools/list gets no reply', !c.inbound.some((m) => m.result && m.result.tools));
-  await c.close();
-  check('server exits cleanly on stdin end', true);
+  const exitCode = await c.close();
+  check('server exits with code 0 on stdin end (not killed)', exitCode === 0, String(exitCode));
 }
 
 function testHooks() {
@@ -231,6 +238,10 @@ function testHooks() {
   check('stop never blocks twice (stop_hook_active)', h.stdout.trim() === '');
   h = hook('hook-stop.js', { session_id: 'FRESH', cwd: FIX, stop_hook_active: false });
   check('stop on a fresh session only checks git-changed files (README.md not checkable) -> silent', h.stdout.trim() === '', h.stdout);
+  fs.writeFileSync(path.join(FIX, 'caf\u00e9.js'), 'function broken( {\n');
+  h = hook('hook-stop.js', { session_id: 'UNICODE', cwd: FIX, stop_hook_active: false });
+  check('stop sees a shell-created broken file with a non-ASCII name (git -z, no quoting)', h.json && h.json.decision === 'block' && /caf\u00e9\.js:\d+:\d+/.test(h.json.reason), h.stdout + h.stderr);
+  fs.unlinkSync(path.join(FIX, 'caf\u00e9.js'));
   // a file verified OK by post-edit and untouched since is not re-checked at Stop (state records verifiedAt)
   hook('hook-post-edit.js', { session_id: 'T2', cwd: FIX, tool_name: 'Edit', tool_input: { file_path: path.join(FIX, 'src', 'app.js') } });
   const st2 = JSON.parse(fs.readFileSync(path.join(DATA, 'sessions', 'T2.json'), 'utf8'));

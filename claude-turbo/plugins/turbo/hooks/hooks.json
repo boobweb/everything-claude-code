@@ -59,7 +59,7 @@
             "type": "command",
             "command": "node",
             "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook-stop.js"],
-            "timeout": 20,
+            "timeout": 30,
             "statusMessage": "Turbo: verifying edited files"
           }
         ]

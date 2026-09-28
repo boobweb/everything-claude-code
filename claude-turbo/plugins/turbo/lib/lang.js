@@ -413,28 +413,49 @@ function lineIndexer(text) {
 }
 
 function attr(attrs, name) {
-  const m = new RegExp(`\\b${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(attrs || '');
+  // whitespace before the name: data-src, data-type and data-id are different attributes
+  const m = new RegExp(`(?:^|\\s)${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i').exec(attrs || '');
   return m ? (m[2] ?? m[3] ?? m[4]) : null;
 }
 
 // Only these `type` values are JavaScript; anything else (json, templates, shaders, importmap, babel/jsx, py...) is skipped.
 const JS_TYPES = /^\s*(?:module|text\/javascript|application\/javascript|text\/ecmascript|application\/ecmascript|text\/jscript|application\/x-javascript|text\/x-javascript)\s*$/i;
 
-/** Locate script blocks with line numbers. Used by the outline and by the syntax checker. */
-function scriptBlocks(text) {
+/**
+ * Sequential scan of an HTML document: script blocks with line numbers, and the HTML comment ranges
+ * outside them. Comments are skipped whole, so a commented-out <script> is neither a block nor pairs
+ * with a later real </script>; a <!-- inside script content is left to the script. Used by the outline,
+ * the syntax checker and file_stats.
+ */
+function scanHtml(text) {
   const lineAt = lineIndexer(text);
   const blocks = [];
-  let m;
-  SCRIPT_RE.lastIndex = 0;
-  let n = 0;
-  while ((m = SCRIPT_RE.exec(text))) {
-    n++;
-    const attrs = m[1] || '';
+  const comments = [];
+  const openRe = /<!--|<script\b/gi;
+  const closeRe = /<\/script\s*>/gi;
+  let pos = 0, n = 0;
+  while (pos < text.length) {
+    openRe.lastIndex = pos;
+    const m = openRe.exec(text);
+    if (!m) break;
+    if (m[0] === '<!--') {
+      const end = text.indexOf('-->', m.index + 4);
+      const stop = end < 0 ? text.length : end + 3;
+      comments.push([m.index, stop]);
+      pos = stop;
+      continue;
+    }
+    const tagEnd = text.indexOf('>', m.index);
+    if (tagEnd < 0) break;
+    const attrs = text.slice(m.index + 7, tagEnd);
+    closeRe.lastIndex = tagEnd + 1;
+    const cm = closeRe.exec(text);
+    const contentStart = tagEnd + 1;
+    const contentEnd = cm ? cm.index : text.length;
     const src = attr(attrs, 'src');
     const type = attr(attrs, 'type');
     const langAttr = attr(attrs, 'lang');
-    const contentStart = m.index + m[0].indexOf('>') + 1;
-    const contentEnd = contentStart + m[2].length;
+    n++;
     blocks.push({
       index: n,
       start: m.index,
@@ -446,17 +467,24 @@ function scriptBlocks(text) {
       src, type, lang: langAttr,
       isModule: /^\s*module\s*$/i.test(type || ''),
       isJS: !src && (!type || JS_TYPES.test(type)) && !/^(ts|typescript|tsx|jsx|coffee|coffeescript)$/i.test(langAttr || ''),
-      content: m[2],
-      length: m[2].length,
+      content: text.slice(contentStart, contentEnd),
+      length: contentEnd - contentStart,
     });
+    pos = cm ? cm.index + cm[0].length : text.length;
   }
-  return blocks;
+  const inComment = (idx) => comments.some(([a, b]) => idx >= a && idx < b);
+  return { blocks, comments, inComment };
+}
+
+/** Script blocks with line numbers (HTML comments skipped). */
+function scriptBlocks(text) {
+  return scanHtml(text).blocks;
 }
 
 function extractHTML(text, { maxSymbols = 400 } = {}) {
   const syms = [];
   const lineAt = lineIndexer(text);
-  const blocks = scriptBlocks(text);
+  const { blocks, inComment } = scanHtml(text);
   let inlineJsSymbols = 0;
   const parsers = new Set();
   for (const b of blocks) {
@@ -473,15 +501,16 @@ function extractHTML(text, { maxSymbols = 400 } = {}) {
   STYLE_RE.lastIndex = 0;
   let sn = 0;
   while ((m = STYLE_RE.exec(text)) && syms.length < maxSymbols) {
+    if (inComment(m.index) || blocks.some((b) => m.index >= b.contentStart && m.index < b.contentEnd)) continue;
     sn++;
     syms.push({ name: `<style #${sn}>`, kind: 'style', line: lineAt(m.index), sig: `${m[2].length.toLocaleString('en-US')} chars, lines ${lineAt(m.index)}-${lineAt(m.index + m[0].length)}` });
   }
   // ids on elements (outside scripts): cheap and very useful for DOM-heavy apps
-  const ID_RE = /<([a-zA-Z][\w-]*)\b[^>]*?\bid\s*=\s*["']([^"']+)["']/g;
+  const ID_RE = /<([a-zA-Z][\w-]*)\b[^>]*?\sid\s*=\s*["']([^"']+)["']/g; // \sid: data-id is not an id
   let ids = 0;
   while ((m = ID_RE.exec(text)) && syms.length < maxSymbols) {
+    if (inComment(m.index) || blocks.some((b) => m.index >= b.contentStart && m.index < b.contentEnd)) continue; // commented out or inside script content
     const ln = lineAt(m.index);
-    if (blocks.some((b) => ln >= b.contentStartLine && ln <= b.endLine && b.isJS)) continue; // inside script content
     syms.push({ name: `#${m[2]}`, kind: 'id', line: ln, sig: `<${m[1]}>` });
     ids++;
     if (ids > 300) break;
@@ -596,4 +625,4 @@ function symbolEnd(lines, startLine, lang, maxLines = 4000) {
   return Math.min(lines.length, i0 + maxLines);
 }
 
-module.exports = { detectLang, outline, primePython, scriptBlocks, symbolEnd, codeOnly, CODE_LANGS, LANG_BY_EXT, stripJsonComments, lineIndexer };
+module.exports = { detectLang, outline, primePython, scriptBlocks, scanHtml, symbolEnd, codeOnly, CODE_LANGS, LANG_BY_EXT, stripJsonComments, lineIndexer };

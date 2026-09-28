@@ -54,10 +54,11 @@ function info(cwd, { maxFiles = 12, commits = 5 } = {}) {
 function changedFiles(cwd, limit = 60) {
   if (!isRepo(cwd)) return [];
   const out = new Set();
-  const a = git(['diff', '--name-only', 'HEAD'], cwd, 5000) || git(['diff', '--name-only'], cwd, 5000) || '';
-  const b = git(['ls-files', '--others', '--exclude-standard'], cwd, 5000) || '';
+  // -z: NUL-separated and unquoted, so "caf\303\251.js"-style quoting never produces a path that does not exist
+  const a = git(['diff', '--name-only', '-z', 'HEAD'], cwd, 5000) || git(['diff', '--name-only', '-z'], cwd, 5000) || '';
+  const b = git(['ls-files', '--others', '--exclude-standard', '-z'], cwd, 5000) || '';
   const root = (git(['rev-parse', '--show-toplevel'], cwd) || cwd).trim();
-  for (const l of (a + '\n' + b).split(/\r?\n/)) {
+  for (const l of (a + '\0' + b).split('\0')) {
     const f = l.trim();
     if (!f) continue;
     out.add(path.resolve(root, f));
