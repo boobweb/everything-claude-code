@@ -56,7 +56,7 @@ function run(check, { PLUGIN, DATA }) {
   check('tidy: text report names every category and says nothing was changed', /DUPLICATES: 1 group/.test(text) && /EMPTY: 1 zero-byte file\(s\), 3 empty folder/.test(text) && /JUNK: 3/.test(text) && /AI LEFTOVERS: 2/.test(text) && /HEAVY[^\n]*: 1 folder/.test(text) && /ARCHIVES[^\n]*: 1/.test(text) && /Nothing was changed/.test(text), text);
 
   // snapshot, apply, verify, undo, compare
-  const snapshot = (dir) => { const out = {}; const rec = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { out[path.relative(dir, p) + '/'] = 'dir'; rec(p); } else out[path.relative(dir, p)] = crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex'); } }; rec(dir); return out; };
+  const snapshot = (dir) => { const out = {}; const rel = (p) => path.relative(dir, p).replace(/\\/g, '/'); const rec = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { out[rel(p) + '/'] = 'dir'; rec(p); } else out[rel(p)] = crypto.createHash('sha1').update(fs.readFileSync(p)).digest('hex'); } }; rec(dir); return out; };
   const before = { root: snapshot(root), claude: snapshot(claudeDir) };
   const cli = (args) => spawnSync(process.execPath, [TIDY, ...args], { encoding: 'utf8', timeout: 60000 });
   const a = cli([root, '--claude-dir', claudeDir, '--apply', '--quiet', '--json']);

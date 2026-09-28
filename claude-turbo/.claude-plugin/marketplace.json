@@ -7,7 +7,7 @@
       "name": "turbo",
       "source": "./plugins/turbo",
       "description": "Indexed code MCP server, automatic syntax checks after every edit, stop-time verification, write and command guards, session briefing, plus skills and subagents for orienting, patching, debugging, verifying, smoke testing and handoff.",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "category": "productivity",
       "tags": ["speed", "safety", "large-files", "hooks", "mcp", "windows"]
     }
