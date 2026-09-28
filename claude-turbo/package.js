@@ -71,7 +71,7 @@ function buildZip(files, prefix) {
   return Buffer.concat([...locals, ...centrals, end]);
 }
 
-const files = listFiles(ROOT, '', []).filter((f) => f.rel !== 'package.js' || true);
+const files = listFiles(ROOT, '', []);
 const zip = buildZip(files, `claude-turbo-${version}`);
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 fs.writeFileSync(OUT, zip);

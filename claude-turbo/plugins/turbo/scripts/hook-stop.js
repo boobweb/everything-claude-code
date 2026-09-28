@@ -35,15 +35,16 @@ io.main(async (input) => {
     const st = fsx.statSafe(f);
     // already verified OK and untouched since: nothing to re-check
     return !(prev && prev.ok && prev.verifiedAt && st && st.mtimeMs <= prev.verifiedAt);
-  }).slice(0, MAX_FILES);
+  }).sort((a, b) => Number(check.isSlowToCheck(a)) - Number(check.isSlowToCheck(b))).slice(0, MAX_FILES); // in-process checks first, spawning ones last
 
   const t0 = Date.now();
   const failures = [];
   const brokenRel = [];
   let checked = 0, skippedForTime = 0;
   for (const f of files) {
-    if (Date.now() - t0 > TIME_BUDGET_MS) { skippedForTime++; continue; }
-    const res = check.checkFile(f, { root });
+    const remaining = TIME_BUDGET_MS - (Date.now() - t0);
+    if (remaining <= 0) { skippedForTime++; continue; }
+    const res = check.checkFile(f, { root, timeoutMs: remaining }); // a slow checker can never overrun the budget
     checked++;
     state.edited = state.edited || {};
     state.edited[f] = { ...(state.edited[f] || {}), ok: res.ok, skipped: res.skipped || null, errors: res.errors.length, verifiedAt: Date.now() };

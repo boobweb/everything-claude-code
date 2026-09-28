@@ -37,8 +37,8 @@ try { jsAst = require('./js-ast'); } catch { jsAst = null; }
 const JSX_LIKE = /<[A-Z][A-Za-z0-9]*[\s/>]|<\/[a-z][a-z0-9-]*>\s*[);,]|^\s*\/\/\s*@flow\b|^\s*\/\*\s*@flow\b/m;
 
 /** node --check on a file path (spawned). */
-function nodeCheckFile(file) {
-  const r = run(NODE, ['--check', file], { timeout: 20000 });
+function nodeCheckFile(file, timeout = 20000) {
+  const r = run(NODE, ['--check', file], { timeout });
   if (r.timedOut) return { ok: true, skipped: 'timeout' };
   if (r.error) return { ok: true, skipped: `could not run node: ${r.error.message}` };
   if (r.status === 0) return { ok: true };
@@ -50,19 +50,19 @@ function nodeCheckFile(file) {
  * Never .js: with module auto-detection (Node 22+) `node --check some.js` exits 0 for files it
  * classifies as ESM even when they contain syntax errors or JSX, so a .js check proves nothing.
  */
-function nodeCheckText(text, kind) {
+function nodeCheckText(text, kind, timeout) {
   const dir = fsx.tmpDir();
   const tmp = path.join(dir, `chk-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.${kind === 'module' ? 'mjs' : 'cjs'}`);
-  try { fs.writeFileSync(tmp, text); return nodeCheckFile(tmp); }
+  try { fs.writeFileSync(tmp, text); return nodeCheckFile(tmp, timeout); }
   finally { try { fs.unlinkSync(tmp); } catch { /* ignore */ } }
 }
 
 /** Ask node whether the text parses in any of the allowed module kinds. Returns 'ok' | 'fail' | 'skipped'. */
-function nodeConfirm(text, module) {
+function nodeConfirm(text, module, timeout) {
   const kinds = module === true ? ['module'] : module === false ? ['script'] : ['script', 'module'];
   let verdict = 'fail';
   for (const k of kinds) {
-    const r = nodeCheckText(text, k);
+    const r = nodeCheckText(text, k, timeout);
     if (r.skipped) return 'skipped';
     if (r.ok) return 'ok';
   }
@@ -75,31 +75,31 @@ function nodeConfirm(text, module) {
  * JSX/Flow-looking files are skipped instead of reported, since neither parser can judge them.
  * module: true (.mjs / <script type=module>), false (.cjs / classic <script>), undefined (.js: either).
  */
-function checkJSSource(text, { module, label } = {}) {
+function checkJSSource(text, { module, label, timeout } = {}) {
   if (jsAst) {
     const a = jsAst.checkJS(text, { module });
     if (a.ok) return { ok: true, checker: 'acorn', errors: [] };
-    const confirm = nodeConfirm(text, module);
+    const confirm = nodeConfirm(text, module, timeout);
     if (confirm === 'ok') return { ok: true, checker: 'node --check (acorn disagreed)', errors: [] };
     if (JSX_LIKE.test(text)) return { ok: true, checker: 'acorn', skipped: 'looks like JSX or Flow, which plain JavaScript parsers cannot check', errors: [] };
     return { ok: false, checker: 'acorn', errors: [{ ...a.error, label }] };
   }
-  const confirm = nodeConfirm(text, module);
+  const confirm = nodeConfirm(text, module, timeout);
   if (confirm === 'skipped') return { ok: true, checker: 'node --check', skipped: 'could not run node --check', errors: [] };
   if (confirm === 'ok') return { ok: true, checker: 'node --check', errors: [] };
   if (JSX_LIKE.test(text)) return { ok: true, checker: 'node --check', skipped: 'looks like JSX or Flow, which plain JavaScript parsers cannot check', errors: [] };
-  const r = nodeCheckText(text, module === true ? 'module' : 'script');
+  const r = nodeCheckText(text, module === true ? 'module' : 'script', timeout);
   return { ok: false, checker: 'node --check', errors: [{ ...(r.error || { line: null, col: null, message: 'syntax error' }), label }] };
 }
 
-function checkJSText(text, { module = false, label = 'inline script' } = {}) {
-  return checkJSSource(text, { module, label });
+function checkJSText(text, { module = false, label = 'inline script', timeout } = {}) {
+  return checkJSSource(text, { module, label, timeout });
 }
 
-function checkJSFile(file) {
+function checkJSFile(file, timeout) {
   const text = fs.readFileSync(file, 'utf8');
   const module = /\.mjs$/i.test(file) ? true : /\.cjs$/i.test(file) ? false : undefined;
-  return checkJSSource(text, { module });
+  return checkJSSource(text, { module, timeout });
 }
 
 // ---------- JSON (with precise error location) ----------
@@ -189,11 +189,11 @@ function checkJSON(text, file) {
 }
 
 // ---------- Python via ast.parse ----------
-function checkPython(file) {
+function checkPython(file, timeout = 20000) {
   const py = pythonCmd();
   if (!py) return { ok: true, checker: 'python ast', skipped: 'python 3 not found', errors: [] };
   const code = 'import ast,sys\nsrc=open(sys.argv[1],"rb").read()\ntry:\n    ast.parse(src, sys.argv[1])\nexcept SyntaxError as e:\n    print("SYNTAX\\t%s\\t%s\\t%s" % (e.lineno or 0, e.offset or 0, e.msg))\n    sys.exit(3)\n';
-  const r = run(py.cmd, [...py.pre, '-c', code, file], { timeout: 20000 });
+  const r = run(py.cmd, [...py.pre, '-c', code, file], { timeout });
   if (r.timedOut) return { ok: true, checker: 'python ast', skipped: 'timeout', errors: [] };
   if (r.error) return { ok: true, checker: 'python ast', skipped: r.error.message, errors: [] };
   if (r.status === 0) return { ok: true, checker: 'python ast', errors: [] };
@@ -221,7 +221,7 @@ function checkCSS(text) {
 }
 
 // ---------- HTML: check every inline script, report with HTML line numbers ----------
-function checkHTML(text, file) {
+function checkHTML(text, file, timeout) {
   const all = scriptBlocks(text);
   const blocks = all.filter((b) => b.isJS && b.content.trim());
   const errors = [];
@@ -231,7 +231,7 @@ function checkHTML(text, file) {
   for (const b of blocks) {
     // Guard: `</script>` inside a JS string would have split the block early; we still check what we have.
     // Classic <script> is parsed as a script (undefined lets .js files auto-detect; here the tag decides).
-    const r = checkJSText(b.content, { module: b.isModule || componentFile ? true : false, label: `<script #${b.index}>` });
+    const r = checkJSText(b.content, { module: b.isModule || componentFile ? true : false, label: `<script #${b.index}>`, timeout });
     checked++;
     checkers.add(r.checker);
     if (!r.ok) {
@@ -255,14 +255,14 @@ function checkHTML(text, file) {
 }
 
 // ---------- PowerShell via the real parser ----------
-function checkPowerShell(file) {
+function checkPowerShell(file, timeout = 15000) {
   const ps = powershellCmd();
   if (!ps) return { ok: true, checker: 'powershell parser', skipped: 'no PowerShell found', errors: [] };
   // The path is embedded as a single-quoted PowerShell literal (quotes doubled): with -Command,
   // trailing arguments are appended to the command text rather than bound to $args.
   const lit = `'${String(file).replace(/'/g, "''")}'`;
   const script = `$p=${lit};$t=$null;$e=$null;[System.Management.Automation.Language.Parser]::ParseFile($p,[ref]$t,[ref]$e)|Out-Null;if($e){foreach($x in $e){Write-Output ("PSERR\`t"+$x.Extent.StartLineNumber+"\`t"+$x.Extent.StartColumnNumber+"\`t"+$x.Message)};exit 3}`;
-  const r = run(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { timeout: 25000 });
+  const r = run(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', script], { timeout });
   if (r.timedOut) return { ok: true, checker: 'powershell parser', skipped: 'timeout', errors: [] };
   if (r.error) return { ok: true, checker: 'powershell parser', skipped: r.error.message, errors: [] };
   const errs = [];
@@ -275,10 +275,10 @@ function checkPowerShell(file) {
 }
 
 // ---------- Shell via bash -n ----------
-function checkShell(file) {
+function checkShell(file, timeout = 10000) {
   const bash = bashCmd();
   if (!bash) return { ok: true, checker: 'bash -n', skipped: process.platform === 'win32' ? 'no Git Bash found (WSL bash cannot read Windows paths)' : 'bash not available', errors: [] };
-  const r = run(bash, ['-n', file], { timeout: 10000 });
+  const r = run(bash, ['-n', file], { timeout });
   if (r.error || r.timedOut) return { ok: true, checker: 'bash -n', skipped: 'bash not available', errors: [] };
   if (r.status === 0) return { ok: true, checker: 'bash -n', errors: [] };
   const m = /line (\d+): (.*?)\r?$/m.exec(r.stderr);
@@ -344,12 +344,18 @@ function isCheckable(file) {
   return CHECKABLE_EXT.has(path.extname(file).toLowerCase());
 }
 
+/** Checkers that spawn a process (python, PowerShell, bash, node confirmation) are slow; everything else is in-process. */
+const SPAWNING_EXT = new Set(['.py', '.pyw', '.ps1', '.psm1', '.psd1', '.sh', '.bash']);
+function isSlowToCheck(file) { return SPAWNING_EXT.has(path.extname(file).toLowerCase()); }
+
 /**
  * Check one file. Returns { ok, checker, errors:[{line,col,message}], skipped?, file }.
- * Never throws.
+ * Never throws. `timeoutMs` caps every spawned checker so a caller with a time budget (the Stop
+ * hook) can never be overrun by one slow file; spawn-based checkers report `skipped: 'timeout'`.
  */
-function checkFile(file, { root } = {}) {
+function checkFile(file, { root, timeoutMs } = {}) {
   const t0 = Date.now();
+  const cap = (def) => (timeoutMs ? Math.max(500, Math.min(def, timeoutMs)) : def);
   try {
     const st = fsx.statSafe(file);
     if (!st || !st.isFile()) return { ok: true, checker: 'none', skipped: 'file not found', errors: [], file };
@@ -358,19 +364,19 @@ function checkFile(file, { root } = {}) {
     let res;
     switch (ext) {
       case '.js': case '.cjs': case '.mjs':
-        res = checkJSFile(file); break;
+        res = checkJSFile(file, cap(20000)); break;
       case '.json': case '.jsonc':
         res = checkJSON(fs.readFileSync(file, 'utf8'), file); break;
       case '.py': case '.pyw':
-        res = checkPython(file); break;
+        res = checkPython(file, cap(20000)); break;
       case '.html': case '.htm': case '.xhtml': case '.vue': case '.svelte':
-        res = checkHTML(fs.readFileSync(file, 'utf8'), file); break;
+        res = checkHTML(fs.readFileSync(file, 'utf8'), file, cap(20000)); break;
       case '.css':
         res = checkCSS(fs.readFileSync(file, 'utf8')); break;
       case '.ps1': case '.psm1': case '.psd1':
-        res = checkPowerShell(file); break;
+        res = checkPowerShell(file, cap(15000)); break;
       case '.sh': case '.bash':
-        res = checkShell(file); break;
+        res = checkShell(file, cap(10000)); break;
       case '.ts': case '.tsx': case '.mts': case '.cts':
         res = checkTypeScript(file, fs.readFileSync(file, 'utf8'), root); break;
       case '.yaml': case '.yml':
@@ -396,4 +402,4 @@ function formatResult(res, root) {
   return `${rel}: ${res.errors.length} error${res.errors.length === 1 ? '' : 's'} (${res.checker})\n${lines.join('\n')}`;
 }
 
-module.exports = { checkFile, isCheckable, formatResult, checkJSText, checkJSSource, checkJSON, checkCSS, checkHTML, jsonErrorLocation, CHECKABLE_EXT, pythonCmd, powershellCmd, bashCmd, run };
+module.exports = { checkFile, isCheckable, isSlowToCheck, formatResult, checkJSText, checkJSSource, checkJSON, checkCSS, checkHTML, jsonErrorLocation, CHECKABLE_EXT, pythonCmd, powershellCmd, bashCmd, run };

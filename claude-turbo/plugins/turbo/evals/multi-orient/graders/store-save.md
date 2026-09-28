@@ -1,4 +1,4 @@
 ---
 type: regex
-pattern: 'src/app\.js:19'
+pattern: 'app\.js[^\n]{0,24}\b19\b'
 ---

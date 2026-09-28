@@ -82,6 +82,14 @@ function run(check, { PLUGIN, FIX }) {
   project.recordGuard(tmpRoot, 'A', 'commandsDenied'); project.recordGuard(tmpRoot, 'A', 'nonsense');
   let rec = project.recordStop(tmpRoot, 'A', ['src/b.js']);
   check('project: a session is counted once, edits keep the last known state, guards and stops are counted', rec.stats.sessions === 1 && rec.stats.brokenEditsCaught === 1 && rec.stats.commandsDenied === 1 && rec.stats.stopBlocks === 1 && rec.sessions.A.edited['src/a.js'].ok === true && rec.sessions.A.edited['src/b.js'].ok === false && rec.sessions.A.clean === false, JSON.stringify(rec));
+  project.recordEdit(tmpRoot, 'A', path.join(tmpRoot, 'src', 'b.js'), false); project.recordEdit(tmpRoot, 'A', path.join(tmpRoot, 'src', 'b.js'), false);
+  check('project: re-checking a still-broken file is not a new broken edit', project.load(tmpRoot).stats.brokenEditsCaught === 1);
+  project.recordEdit(tmpRoot, 'A', path.join(tmpRoot, 'src', 'b.js'), true); project.recordEdit(tmpRoot, 'A', path.join(tmpRoot, 'src', 'b.js'), false);
+  check('project: a file fixed and broken again counts once more', project.load(tmpRoot).stats.brokenEditsCaught === 2);
+  const checkLib = require(path.join(PLUGIN, 'lib', 'check'));
+  check('check: spawning checkers (py, ps1, sh) are ordered last by the Stop hook; in-process ones first', checkLib.isSlowToCheck('a.py') && checkLib.isSlowToCheck('b.PS1') && checkLib.isSlowToCheck('c.sh') && !checkLib.isSlowToCheck('d.js') && !checkLib.isSlowToCheck('e.html') && !checkLib.isSlowToCheck('f.json'));
+  const capped = checkLib.checkFile(path.join(FIX, 'tools', 'gen.py'), { root: FIX, timeoutMs: 1 });
+  check('check: a timeout budget below the floor still runs the checker (500 ms floor) or skips with a timeout, never errors', capped.ok === true && (!capped.skipped || capped.skipped === 'timeout'), JSON.stringify(capped));
   check('project: describe() for the next session names the last one, its files and how it ended', /^Last session \(\d+s ago\) edited src\/a\.js, src\/b\.js; ended with 1 broken file: src\/b\.js\. Turbo in this project \(1 session\): 1 broken edit caught, 1 command guarded\.$/.test(project.describe(rec, 'B')), project.describe(rec, 'B'));
   check('project: describe() ignores the current session and sessions without edits', project.describe(rec, 'A') === 'Turbo in this project (1 session): 1 broken edit caught, 1 command guarded.' && (project.startSession(tmpRoot, 'C'), /^Last session[^]*src\/a\.js/.test(project.describe(project.load(tmpRoot), 'C'))));
   rec = project.recordStop(tmpRoot, 'A', []);

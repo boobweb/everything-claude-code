@@ -83,7 +83,7 @@ function copyKit() {
   log(`   copying kit to ${dest}`);
   if (DRY) return dest;
   fs.mkdirSync(dest, { recursive: true });
-  fs.cpSync(src, dest, { recursive: true, force: true, filter: (p) => !/[\\/](\.git|node_modules)([\\/]|$)/.test(p) });
+  fs.cpSync(src, dest, { recursive: true, force: true, filter: (p) => !/[\\/](\.git|node_modules|dist|_turbo-quarantine)([\\/]|$)/.test(p) && !/[\\/]evals[\\/]results([\\/]|$)/.test(p) });
   return dest;
 }
 

@@ -164,7 +164,7 @@ function testHooks() {
   let h = hook('hook-session-start.js', { session_id: 'T', cwd: FIX, hook_event_name: 'SessionStart', source: 'startup' });
   const ctx = h.json && h.json.hookSpecificOutput && h.json.hookSpecificOutput.additionalContext;
   check('session-start emits additionalContext JSON', h.status === 0 && typeof ctx === 'string', h.stdout + h.stderr);
-  check('session-start brief has stack, check commands, large files with blob share, toolkit line', ctx && /Stack: node\/npm/.test(ctx) && /Checks: npm test/.test(ctx) && /index\.html 360KB/.test(ctx) && /mcp__plugin_turbo_code__repo_map/.test(ctx), ctx);
+  check('session-start brief has stack, check commands, large files with blob share, toolkit line', ctx && /Stack: node\/npm/.test(ctx) && /Checks: npm test/.test(ctx) && /index\.html 360KB/.test(ctx) && /mcp__plugin_turbo_code__file_outline/.test(ctx) && /repo_map/.test(ctx), ctx);
   check('session-start brief omits what Claude Code already shows (git status, commits, layout, cwd)', ctx && !/Git:|branch main|Recent commits|Layout:|Project root/.test(ctx), ctx);
   check('session-start brief under 1200 chars without a handoff note', ctx && ctx.length < 1200, ctx && String(ctx.length));
   h = hook('hook-session-start.js', { session_id: 'OPT', cwd: FIX, source: 'startup' }, { CLAUDE_PLUGIN_OPTION_BRIEF: 'false' });

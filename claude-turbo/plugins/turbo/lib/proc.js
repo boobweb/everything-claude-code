@@ -61,7 +61,7 @@ function powershellCmd() {
   if (cached.powershell !== undefined) { psCache = cached.powershell; return psCache; }
   psCache = null;
   for (const c of ['pwsh', 'powershell']) {
-    const r = run(c, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.Major'], { timeout: 12000 });
+    const r = run(c, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.Major'], { timeout: 8000 });
     if (!r.error && r.status === 0) { psCache = c; break; }
   }
   saveProbe('powershell', psCache);

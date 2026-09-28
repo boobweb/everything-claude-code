@@ -4,5 +4,5 @@ pattern: 'function S\(id\) \{[\s\S]{0,300}document\.body\.dataset\.screen = id;[
 target:
   source: file
   path: index.html
-weight: 2
+weight: 4
 ---

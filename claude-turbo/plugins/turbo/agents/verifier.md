@@ -1,7 +1,7 @@
 ---
 name: verifier
 description: 'Independent verification of a change. Use proactively after implementing a fix or feature, before telling the user it works: reads the diff, runs the real checks (syntax, tests, browser smoke test), tries to break it, and reports PASS or FAIL with evidence. Does not edit files.'
-tools: Read, Grep, Glob, Bash, PowerShell, mcp__plugin_turbo_code__*
+tools: Read, Grep, Glob, Bash, PowerShell, mcp__plugin_turbo_code__repo_map, mcp__plugin_turbo_code__file_outline, mcp__plugin_turbo_code__find_symbol, mcp__plugin_turbo_code__read_range, mcp__plugin_turbo_code__search, mcp__plugin_turbo_code__syntax_check, mcp__plugin_turbo_code__file_stats
 model: inherit
 maxTurns: 40
 color: green

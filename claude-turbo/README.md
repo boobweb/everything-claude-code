@@ -7,11 +7,11 @@ A drop-in plugin that makes Claude Code **faster, smarter and safer in every pro
 - **Safer**: hooks that syntax-check every file Claude edits (JavaScript via acorn, HTML inline scripts, JSON, Python, CSS, PowerShell, shell, TypeScript, YAML/XML basics) and re-verify at the end of the turn, a guard against rewriting or truncating large files, and a guard that denies catastrophic shell commands and asks before risky ones.
 - **Measured**: with-vs-without evals on two models in [EVALS.md](EVALS.md), including where the plugin does not help.
 
-Requirements: Claude Code 2.1.2xx or newer, Node.js 18 or newer. Windows, macOS and Linux. Optional: ripgrep (faster search), Python 3 (exact Python outlines and checks), a `typescript` package in the project (TypeScript outlines and checks), Playwright (`/turbo:smoke`).
+Requirements: Claude Code 2.1.283 or newer (the version v2 was built and tested against; older 2.1.2xx builds load the plugin but may not offer the options dialog), Node.js 18 or newer (CI runs 18, 20 and 24). Windows, macOS and Linux. Optional: ripgrep (faster search), Python 3 (exact Python outlines and checks), a `typescript` package in the project (TypeScript outlines and checks), Playwright (`/turbo:smoke`).
 
 ## Install (Windows)
 
-1. Unzip the kit anywhere (Downloads is fine; the installer copies it to `%USERPROFILE%\.claude\turbo-kit`).
+1. Unzip the kit anywhere (Downloads is fine; the installer copies it to `$env:USERPROFILE\.claude\turbo-kit`).
 2. Open PowerShell in the folder and run:
    ```powershell
    .\install.ps1
@@ -23,14 +23,14 @@ macOS / Linux: `./install.sh` (same options).
 
 Optional: `.\install.ps1 -WithPlaywright` also installs the headless Chromium used by `/turbo:smoke` (about 300MB). Without it, the smoke skill tells you the one-line install command when you first need it.
 
-What the installer does: copies the kit, runs the server self-test, registers the folder as a local plugin marketplace (`turbo-local`), installs the `turbo` plugin at user scope (all projects), and adds a small permission allowlist to `~/.claude/settings.json` (backups written next to it) so Claude does not stop to ask about Turbo's read-only tools and common check commands (`node --check`, `npm test`, `npm run lint/build`, `pytest`), with matching `Bash(...)` and `PowerShell(...)` rules so it works with or without Git Bash. Skip that with `-NoPermissions`.
+What the installer does: copies the kit, runs the server self-test, registers the folder as a local plugin marketplace (`turbo-local`), installs the `turbo` plugin at user scope (all projects), and edits `~/.claude/settings.json` (backups written next to it): an `allow` list for Turbo's read-only tools and common check commands (`node --check`, `npm test`, `npm run lint/build`, `pytest`) and an `ask` list for `git push --force`, `git reset --hard` and `git clean`, each with matching `Bash(...)` and `PowerShell(...)` rules so it works with or without Git Bash. Skip that with `-NoPermissions`. Other switches: `-InPlace` (use the folder where it is instead of copying), `-DryRun` (show what would happen), `-Uninstall`.
 
 ## What you get
 
 | Piece | Where | What it does |
 |---|---|---|
 | MCP server `code` | `/mcp` shows `plugin:turbo:code` | 7 read-only tools prefixed `mcp__plugin_turbo_code__` for indexed, bounded reads of files and repos. JavaScript, HTML inline scripts, Python and TypeScript are parsed by real parsers, so symbol ranges are exact; other languages use heuristics |
-| SessionStart hook | automatic | A brief of about 700 characters: stack and check commands, large files (with the share of embedded base64), what the previous session edited and whether it ended clean, counters of what Turbo caught here, the handoff note, one line on the tools |
+| SessionStart hook | automatic | A brief of 600 to 900 characters (150 to 250 tokens): stack and check commands, large files (with the share of embedded base64), what the previous session edited and whether it ended clean, counters of what Turbo caught here, the handoff note, one line on the tools |
 | PostToolUse hook | after every Edit/Write | Syntax/integrity check of the edited file; failures reported with `file:line:col`. JSX inside `.js` is skipped, never flagged |
 | PreToolUse hook (Write) | before Writes | Asks before replacing a file over 2MB, shrinking a file over 48KB by more than 40%, or writing "... rest unchanged" placeholders |
 | PreToolUse hook (Bash/PowerShell) | before commands | Analyzes deletes structurally (`rm`, `Remove-Item`, `rd`, `del`, pipelines, `bash -c`, `cd` tracking): denies recursive deletes of any user profile, drive roots and system folders, disk formatting and fork bombs; asks before deleting outside the project, the project root or `.git`; asks on force pushes, `reset --hard`, `git clean`, download-to-shell pipes, `DROP TABLE` through a database client, publishing and remote-resource deletes. In-project cleanups (`rm -rf node_modules dist`) pass silently |
@@ -54,29 +54,31 @@ The brief names any non-default option so you always know what is active.
 
 ## Continuity
 
-Turbo keeps a small record per project under the plugin's data directory (`~/.claude/plugins/data/turbo-turbo-local/projects/`): the last six sessions, which files each edited, whether it ended with everything parsing, and counters of broken edits caught, commands guarded and risky writes held. The next session's brief starts with it ("Last session (2h ago) edited src/app.js, index.html; ended clean."). Print the whole record with:
+Turbo keeps a small record per project under the plugin's data directory (Claude Code creates it as `~/.claude/plugins/data/turbo-turbo-local/`; `stats.js` prints the path it found): the last six sessions, which files each edited, whether it ended with everything parsing, and counters of broken edits caught, commands guarded and risky writes held. The next session's brief starts with it ("Last session (2h ago) edited src/app.js, index.html; ended clean."). Print the whole record with:
 
-```
-node "%USERPROFILE%\.claude\turbo-kit\plugins\turbo\scripts\stats.js" --root <project> --data "%USERPROFILE%\.claude\plugins\data\turbo-turbo-local"
+```powershell
+node "$env:USERPROFILE\.claude\turbo-kit\plugins\turbo\scripts\stats.js" --root <project>
 ```
 
-Uninstalling the plugin removes the record.
+Claude Code deletes the plugin's data directory, record included, when the plugin is uninstalled (unless `--keep-data` is passed).
 
 ## Cleaning up a drive
 
 `/turbo:tidy C:\Users\you` (or any folder) scans read-only and reports byte-identical duplicates (the copy in the shortest path that is not named like a copy is kept), zero-byte files and empty folders, `Thumbs.db`/`.DS_Store`/Office lock files/stale partial downloads, Claude Code leftovers (transcripts of projects that no longer exist, old logs, duplicated skill folders), heavy regenerable folders (`node_modules`, virtualenvs, caches untouched for months) and archives sitting next to their extracted folder. On request it moves the categories you choose into `<folder>\_turbo-quarantine\<timestamp>\` with a manifest; `--undo` puts everything back. From a terminal:
 
+```powershell
+node "$env:USERPROFILE\.claude\turbo-kit\plugins\turbo\scripts\tidy.js" C:\Users\you\Downloads
+node "$env:USERPROFILE\.claude\turbo-kit\plugins\turbo\scripts\tidy.js" C:\Users\you\Downloads --apply --only duplicates,empty,junk
+node "$env:USERPROFILE\.claude\turbo-kit\plugins\turbo\scripts\tidy.js" --undo "C:\Users\you\Downloads\_turbo-quarantine\2026-09-28T13-00-00"
 ```
-node "%USERPROFILE%\.claude\turbo-kit\plugins\turbo\scripts\tidy.js" C:\Users\you\Downloads
-node "%USERPROFILE%\.claude\turbo-kit\plugins\turbo\scripts\tidy.js" C:\Users\you\Downloads --apply --only duplicates,empty,junk
-node "%USERPROFILE%\.claude\turbo-kit\plugins\turbo\scripts\tidy.js" --undo "C:\Users\you\Downloads\_turbo-quarantine\2026-09-28T13-00-00"
-```
+
+(In cmd.exe write `%USERPROFILE%` instead of `$env:USERPROFILE`.)
 
 ## Verify it is working
 
-Inside Claude Code: `/mcp` lists `plugin:turbo:code` (connected); `/hooks` shows five Turbo hooks; `/turbo:help` prints the overview. From a terminal: `node "%USERPROFILE%\.claude\turbo-kit\plugins\turbo\mcp\server.js" --selftest`.
+Inside Claude Code: `/mcp` lists `plugin:turbo:code` (connected); `/hooks` shows five Turbo hooks; `/turbo:help` prints the overview. From a PowerShell terminal: `node "$env:USERPROFILE\.claude\turbo-kit\plugins\turbo\mcp\server.js" --selftest`.
 
-Run the test suite (builds a throwaway fixture project, exercises every parser, tool, hook and the tidy script; about 30 s; 289 checks): `node tests\run-tests.js`. Optional tools that are missing (Python, typescript, Playwright, the claude CLI) are skipped and reported, never failed.
+Run the test suite (builds a throwaway fixture project, exercises every parser, tool, hook and the tidy script; 15 to 30 s): `node tests\run-tests.js`. It reports 289 checks on a bare machine and a few more when optional tools are present (Python, typescript, Playwright, the claude CLI); missing ones are skipped and named, never failed.
 
 ## Update
 
@@ -84,7 +86,7 @@ Unzip the new kit and run the installer again; it refreshes the installed copy (
 
 ## Uninstall
 
-`node "%USERPROFILE%\.claude\turbo-kit\install.js" --uninstall` (removes the plugin, the marketplace entry and only the permission rules this installer added; leaves the folder for you to delete).
+`node "$env:USERPROFILE\.claude\turbo-kit\install.js" --uninstall` (removes the plugin, the marketplace entry and only the permission rules this installer added; leaves the folder for you to delete).
 
 ## Troubleshooting
 
@@ -95,12 +97,12 @@ Unzip the new kit and run the installer again; it refreshes the installed copy (
 - **The command guard asks too often**: set `guard_level` to `deny-only`.
 - **Turbo tools refuse a path**: by design they read only inside the session's working directories (the folder Claude Code was started in plus `--add-dir` folders); Claude falls back to the Read tool for anything else.
 - **PowerShell parse check**: uses `pwsh` or `powershell` if present; Python checks use `py -3`/`python`; TypeScript checks use the project's own `typescript` package. Missing tools are skipped, never reported as errors. Which one was found is cached for a day in the plugin data directory (`probes.json`).
-- **Playwright missing** (smoke exit code 3): `npm install -g playwright && npx playwright install chromium`.
+- **Playwright missing** (smoke exit code 3): `npm install -g playwright` then `npx playwright install chromium` (two commands; Windows PowerShell 5.1 has no `&&`).
 
 ## Development
 
 - `node tests/run-tests.js` before every commit (`--keep` keeps the fixture directory).
-- `node package.js` builds `dist/turbo-<version>.zip` from a clean checkout for distribution.
+- `node package.js` zips the working tree (minus `.git`, `node_modules`, `dist`, eval results and quarantine folders) into `dist/turbo-<version>.zip` for distribution.
 - Evals: see `plugins/turbo/evals/README.md` and [EVALS.md](EVALS.md).
 - How it all fits together: [ARCHITECTURE.md](ARCHITECTURE.md). What changed: [CHANGELOG.md](CHANGELOG.md).
 

@@ -88,7 +88,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 73129,
+              "output": 308
+            }
           },
           {
             "score": 1,
@@ -118,7 +122,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 73129,
+              "output": 312
+            }
           }
         ],
         "without": [
@@ -150,7 +158,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 62650,
+              "output": 316
+            }
           },
           {
             "score": 1,
@@ -180,7 +192,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 62637,
+              "output": 314
+            }
           }
         ]
       },
@@ -297,7 +313,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 74859,
+              "output": 551
+            }
           },
           {
             "score": 1,
@@ -349,7 +369,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 74781,
+              "output": 379
+            }
           }
         ],
         "without": [
@@ -403,7 +427,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 119535,
+              "output": 968
+            }
           },
           {
             "score": 1,
@@ -455,7 +483,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 87221,
+              "output": 1038
+            }
           }
         ]
       },
@@ -571,7 +603,11 @@
                 "withOnly": true,
                 "scored": false
               }
-            ]
+            ],
+            "tokens": {
+              "context": 48602,
+              "output": 222
+            }
           },
           {
             "score": 1,
@@ -623,7 +659,11 @@
                 "withOnly": true,
                 "scored": false
               }
-            ]
+            ],
+            "tokens": {
+              "context": 48579,
+              "output": 212
+            }
           }
         ],
         "without": [
@@ -661,7 +701,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 84067,
+              "output": 577
+            }
           },
           {
             "score": 1,
@@ -697,7 +741,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 62767,
+              "output": 408
+            }
           }
         ]
       },
@@ -776,7 +824,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 75157,
+              "output": 593
+            }
           },
           {
             "score": 1,
@@ -812,7 +864,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 75175,
+              "output": 545
+            }
           }
         ],
         "without": [
@@ -850,7 +906,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 63073,
+              "output": 415
+            }
           },
           {
             "score": 1,
@@ -886,7 +946,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 63069,
+              "output": 441
+            }
           }
         ]
       },
@@ -1025,7 +1089,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 73405,
+              "output": 350
+            }
           },
           {
             "score": 1,
@@ -1079,7 +1147,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 73308,
+              "output": 267
+            }
           }
         ],
         "without": [
@@ -1135,7 +1207,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 83885,
+              "output": 479
+            }
           },
           {
             "score": 1,
@@ -1189,7 +1265,11 @@
                 "withOnly": false,
                 "scored": true
               }
-            ]
+            ],
+            "tokens": {
+              "context": 83935,
+              "output": 501
+            }
           }
         ]
       },

@@ -75,7 +75,7 @@ io.main(async (input) => {
   } catch { /* ignore */ }
 
   // One line on the toolkit (facts the model needs to pick the cheap path; skills are listed by /turbo:help)
-  lines.push('Turbo tools (mcp__plugin_turbo_code__repo_map, file_outline, find_symbol, read_range, search, syntax_check, file_stats) return line-numbered outlines and bounded reads with blobs folded: use them instead of reading files over ~100KB whole. Hooks syntax-check every Edit/Write and re-verify at Stop, so manual syntax runs are redundant. /turbo:help lists skills, subagents and options.');
+  lines.push('Turbo: use mcp__plugin_turbo_code__file_outline / find_symbol / read_range / search instead of reading files over ~100KB whole (repo_map first in an unfamiliar repo). Hooks syntax-check every Edit/Write and re-verify at Stop; manual syntax runs are redundant. /turbo:help for skills and options.');
 
   const text = lines.join('\n');
   io.log(`brief ${text.length} chars in ${Date.now() - t0}ms`);

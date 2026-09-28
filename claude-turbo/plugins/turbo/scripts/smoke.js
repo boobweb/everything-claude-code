@@ -90,7 +90,8 @@ async function main() {
   }
   const pw = findPlaywright();
   if (!pw) {
-    console.error('Playwright is not installed. Install once with:\n  npm install -g playwright && npx playwright install chromium\n(or in the project: npm i -D playwright && npx playwright install chromium)');
+    const sep = process.platform === 'win32' ? ';' : '&&';
+    console.error(`Playwright is not installed. Install once with:\n  npm install -g playwright ${sep} npx playwright install chromium\n(or in the project: npm i -D playwright ${sep} npx playwright install chromium)`);
     process.exit(3);
   }
   let server = null;

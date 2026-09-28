@@ -57,11 +57,11 @@ The symbol shape is the contract between parsers and renderers: `{ name, kind, l
 
 | hook | script | what it does | budget |
 |---|---|---|---|
-| SessionStart | `hook-session-start.js` | opens the session state, counts the session in the project record, and (unless `brief=false`) injects: stack and check commands, large files with blob share, the continuity line, the handoff note, one toolkit line. Nothing Claude Code already shows (cwd, git status, commits, layout). Typical size 500 to 900 characters. | 15 s |
+| SessionStart | `hook-session-start.js` | opens the session state, counts the session in the project record, and (unless `brief=false`) injects: stack and check commands, large files with blob share, the continuity line, the handoff note, one toolkit line. Nothing Claude Code already shows (cwd, git status, commits, layout). Typical size 600 to 900 characters. | 15 s |
 | PostToolUse Edit/Write/MultiEdit | `hook-post-edit.js` | syntax-checks the edited file; silent on success, `decision: block` with `file:line:col` on failure; records the file in the session state and the project record | 30 s |
 | PreToolUse Write | `hook-pre-write.js` | asks before replacing a file over 2MB, shrinking one over 48KB by more than 40%, or writing a "... rest unchanged" placeholder; only under `guard_level=strict` | 15 s |
 | PreToolUse Bash/PowerShell | `hook-pre-bash.js` | structural delete analysis plus deny/ask pattern lists; `deny` for catastrophic commands, `ask` for risky ones (skipped under `deny-only`), nothing under `off` | 15 s |
-| Stop | `hook-stop.js` | re-checks every file edited this session plus git-changed files touched since the session began, skipping files already verified and untouched; blocks once with a report; on the second Stop (`stop_hook_active`) it re-checks for the record but never blocks; disabled by `stop_check=false` | 12 s of checks, 20 s timeout |
+| Stop | `hook-stop.js` | re-checks every file edited this session plus git-changed files touched since the session began, skipping files already verified and untouched; in-process checks first, spawning ones (Python, PowerShell, shell) last, each spawned checker capped at the budget that is left; blocks once with a report; on the second Stop (`stop_hook_active`) it re-checks for the record but never blocks; disabled by `stop_check=false` | 12 s of checks, 20 s timeout |
 
 All hooks are exec-form (`node` + `args`) so they need no shell and work with paths containing spaces on Windows. Every hook exits 0 on any internal error (`hookio.main`), because a broken hook must never break Claude Code.
 
@@ -71,7 +71,7 @@ Acorn runs in-process first (milliseconds, exact line and column). When acorn re
 
 ## Options
 
-Declared in `plugin.json` `userConfig` and delivered to hooks by Claude Code as `CLAUDE_PLUGIN_OPTION_BRIEF`, `CLAUDE_PLUGIN_OPTION_STOP_CHECK`, `CLAUDE_PLUGIN_OPTION_GUARD_LEVEL`. `options.js` treats a missing or blank variable as the default, accepts `false/0/off/no/disabled` for booleans, and normalizes `guard_level` (`Deny_Only` = `deny-only`; unknown values fall back to `strict`). The manifest does not use the newer `options` picker key on purpose: older Claude Code builds (the ones `npm install -g` gives Node 20) reject unknown manifest keys, and the hook validates the value anyway.
+Declared in `plugin.json` `userConfig` and delivered to hooks by Claude Code as `CLAUDE_PLUGIN_OPTION_BRIEF`, `CLAUDE_PLUGIN_OPTION_STOP_CHECK`, `CLAUDE_PLUGIN_OPTION_GUARD_LEVEL`. `options.js` treats a missing or blank variable as the default, accepts `false/0/off/no/disabled` for booleans, and normalizes `guard_level` (`Deny_Only` = `deny-only`; unknown values fall back to `strict`). The manifest does not use the `options` picker key (added to the manifest schema in Claude Code 2.1.271) on purpose: older builds reject unknown manifest keys, and the hook validates the value anyway.
 
 ## Continuity record
 
@@ -83,7 +83,7 @@ Declared in `plugin.json` `userConfig` and delivered to hooks by Claude Code as 
 
 ## Evals
 
-`plugins/turbo/evals/` holds five `claude plugin eval` cases with scaffolds that copy a fixture into the run's empty temp directory, graders (regex on answer or file, LLM rubric, tool-usage checks) and `summarize.js` for the tables in `EVALS.md`. Fixtures are generated from `tests/fixture.js` (`evals/make-fixtures.js`) so evals and tests agree on line numbers. Results are published under `evals/published/`.
+`plugins/turbo/evals/` holds five `claude plugin eval` cases with scaffolds that copy a fixture into the run's empty temp directory, graders (regex on answer or file, LLM rubric, tool-usage checks) and `summarize.js` for the tables in `EVALS.md`. Fixtures are generated from `tests/fixture.js` (`evals/make-fixtures.js`) so evals and tests agree on line numbers. Local runs land in `evals/results/` (git-ignored); the runs behind `EVALS.md` are kept under `evals/published/` with token counts embedded (`summarize.js --embed`), since the traces they came from live in temp directories.
 
 ## Tests and CI
 
@@ -93,6 +93,6 @@ Declared in `plugin.json` `userConfig` and delivered to hooks by Claude Code as 
 
 - **Zero dependencies, vendored acorn.** A plugin that needs `npm install` fails on machines without a working npm, and a dependency tree is an attack surface; acorn is 150KB of MIT code and covers JavaScript completely. TypeScript is not bundled (8MB) but used when the project has it.
 - **Real parsers, heuristic fallback.** Exact ranges matter for `find_symbol` and for `read_range` cost; when a file does not parse (mid-edit) the regex outline still gives the model something to navigate with, labeled `heuristic`.
-- **The brief contains only what Claude Code lacks.** Every character of the brief is paid on every turn of every session. Measured overhead of the whole plugin per model call: about 3.7k tokens (skills and agents about 1.4k, tool schemas about 2k, brief about 0.2k); see `EVALS.md`.
+- **The brief contains only what Claude Code lacks.** Every character of the brief is paid on every turn of every session. Measured overhead of the whole plugin per model call: about 3.7k tokens (skills and agents about 1.4k, tool schemas about 2k, brief about 0.2k); see `EVALS.md`. Measure it any time with the SessionStart hook on a real repo (it logs the size under `TURBO_DEBUG=1`).
 - **Guards are a safety net, not a sandbox.** The command guard analyzes the command text structurally; anything it cannot classify passes. It denies only what is catastrophic on any machine and asks for the rest so the user stays in control.
 - **Hooks fail open, tools fail closed.** A hook error must never block the user's work; a tool refusing a path outside the project is the right default.

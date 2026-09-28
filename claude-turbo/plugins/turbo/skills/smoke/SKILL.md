@@ -19,7 +19,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" --url http://localhost:8000/ ...
 - With `--dir`, the script serves the folder itself on a random localhost port (no server setup needed); with `--url` it tests a server you already started.
 - Pick the wait condition from the app: a loading overlay that must disappear (`--wait-hidden`), a main element that must appear (`--wait-visible`), or text (`--wait-text`). Find selectors with `file_outline` (HTML ids) or `search`.
 - Exit codes: 0 pass, 1 problems, 2 usage error, 3 Playwright missing.
-- If exit 3: install once with `npm install -g playwright && npx playwright install chromium` (ask the user first if the project is not yours; it downloads a browser), then re-run.
+- If exit 3: install once with `npm install -g playwright` then `npx playwright install chromium` (two commands: `&&` does not exist in Windows PowerShell 5.1) (ask the user first if the project is not yours; it downloads a browser), then re-run.
 - The script prints a screenshot path; use `Read` on it to look at the rendered page when a visual check matters (blank screen, overlay stuck, overflow).
 
 ## Interpret

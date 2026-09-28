@@ -11,7 +11,7 @@ Request: $ARGUMENTS
 
 ## Rules
 
-- Never rewrite or re-emit a large file. Use `Edit` with exact `old_string`/`new_string` (the Write guard will stop you if you try).
+- Never rewrite or re-emit a large file. Use `Edit` with exact `old_string`/`new_string` (under the default `guard_level` strict, the Write guard asks the user before letting a large-file rewrite through).
 - Locate before you touch: `file_outline` → `find_symbol` / `read_range` on the exact lines. Read only what the change needs plus enough context to make `old_string` unique.
 - Preserve everything you did not intend to change: names of established globals, state variables, mode flags, boot/loading code, formatting style, comments, data ordering.
 - Structured data (arrays of objects, question banks, config): keep object shape identical; after inserting or removing items re-check that any index-based fields (e.g. `c: 2` meaning "third option") still point at the intended element; no duplicate ids; no trailing-comma or bracket damage.

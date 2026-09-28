@@ -16,7 +16,7 @@ Scope: $ARGUMENTS (default: files changed in this session / git working tree).
 3. **Project checks** (run what exists, in this order, stop on the first failure and fix it): 
    - package.json scripts: `lint`, `typecheck`/`check`, `test`, `build` (`npm run <name>`; use the detected package manager). 
    - Python: `pytest -q` (or `python -m pytest -q`), `ruff check .` if configured. 
-   - Go: `go build ./... && go test ./...`; Rust: `cargo test`; .NET: `dotnet test`; Make: `make test` if the target exists.
+   - Go: `go build ./...` then `go test ./...`; Rust: `cargo test`; .NET: `dotnet test`; Make: `make test` if the target exists.
    - Run each with a timeout; capture the last 40 lines of output on failure.
 4. **Runtime smoke** for web apps (static HTML, SPA, local server): `node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" --dir <folder>` or `--url <running url>`, adding `--wait-hidden "<loading overlay selector>"` and `--click "<primary button>"` when known. Zero uncaught exceptions and zero console errors is the bar. Add `--mobile` for a second run when layout matters.
 5. **Data integrity** when structured data changed: spot-check object shapes and index-based fields (`read_range` around the edited items), duplicate ids (`search` for the id pattern), array lengths that other code assumes.

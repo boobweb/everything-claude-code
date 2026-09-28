@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Regression-focused code review of a diff or a set of files. Use proactively before committing non-trivial changes, after refactors, or when the user asks "does this look right". Looks for behavior changes, state bleed, error handling gaps, shifted indices in data, and Windows/path issues. Read-only.
-tools: Read, Grep, Glob, Bash, PowerShell, mcp__plugin_turbo_code__*
+tools: Read, Grep, Glob, Bash, PowerShell, mcp__plugin_turbo_code__repo_map, mcp__plugin_turbo_code__file_outline, mcp__plugin_turbo_code__find_symbol, mcp__plugin_turbo_code__read_range, mcp__plugin_turbo_code__search, mcp__plugin_turbo_code__syntax_check, mcp__plugin_turbo_code__file_stats
 model: inherit
 maxTurns: 30
 color: yellow

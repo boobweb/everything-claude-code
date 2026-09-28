@@ -3,13 +3,16 @@
 // Turn a `claude plugin eval --json <file>` result (or results/<ts>/aggregate-result.json) into the
 // markdown tables used in EVALS.md: per case and arm, mean score, pass rate, turns, cost, duration,
 // and (when the run used --keep-temp so traces still exist) context and output tokens.
-//   node evals/summarize.js <result.json> [--md]
+//   node evals/summarize.js <result.json>            print the tables
+//   node evals/summarize.js <result.json> --embed    also copy each run's token counts from its trace into the
+//                                                    JSON (run right after the eval, while --keep-temp traces exist)
 
 const fs = require('fs');
 
 const file = process.argv[2];
-if (!file) { console.error('usage: node summarize.js <result.json>'); process.exit(2); }
+if (!file) { console.error('usage: node summarize.js <result.json> [--embed]'); process.exit(2); }
 const d = JSON.parse(fs.readFileSync(file, 'utf8'));
+const EMBED = process.argv.includes('--embed');
 
 function tokensFromTrace(tracePath) {
   try {
@@ -35,7 +38,7 @@ for (const c of d.cases || []) {
     const runs = (c.arms && c.arms[arm]) || [];
     if (!runs.length) continue;
     const ok = runs.filter((r) => !r.error);
-    const toks = ok.map((r) => tokensFromTrace(r.tracePath)).filter(Boolean);
+    const toks = ok.map((r) => { const t = r.tokens || tokensFromTrace(r.tracePath); if (t && EMBED) r.tokens = t; return t; }).filter(Boolean);
     rows.push({
       case: c.name, arm, runs: runs.length, errors: runs.length - ok.length,
       score: mean(runs.map((r) => r.score)), pass: mean(runs.map((r) => (r.passed ? 1 : 0))),
@@ -58,4 +61,5 @@ out.push('Per-run grader results (P = pass, F = fail):');
 for (const r of rows) out.push(`- ${r.case} / ${r.arm}: ${r.graders}`);
 const deltas = (d.cases || []).filter((c) => c.aggregates && c.aggregates.delta != null).map((c) => `${c.name} ${c.aggregates.delta >= 0 ? '+' : ''}${fmt(c.aggregates.delta)}`);
 if (deltas.length) out.push('', `Score deltas (with minus without): ${deltas.join(', ')}`);
+if (EMBED) { fs.writeFileSync(file, JSON.stringify(d, null, 2) + '\n'); out.push('', `token counts embedded into ${file}`); }
 process.stdout.write(out.join('\n') + '\n');

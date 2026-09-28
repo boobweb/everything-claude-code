@@ -63,8 +63,11 @@ function startSession(root, sessionId) {
 
 function recordEdit(root, sessionId, absFile, ok) {
   return update(root, sessionId, (p, s) => {
-    if (s) s.edited[fsx.relDisplay(absFile, root)] = { ok: !!ok, ts: Date.now() };
-    if (!ok) p.stats.brokenEditsCaught++;
+    const rel = fsx.relDisplay(absFile, root);
+    const wasBroken = !!(s && s.edited[rel] && s.edited[rel].ok === false);
+    if (s) s.edited[rel] = { ok: !!ok, ts: Date.now() };
+    // one broken edit = one file going from fine to broken; re-checking a still-broken file is not a new catch
+    if (!ok && !wasBroken) p.stats.brokenEditsCaught++;
   });
 }
 
