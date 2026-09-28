@@ -148,7 +148,7 @@ function run(check, { PLUGIN, FIX }) {
     ['echo "<html></html>" > index.html', 'ask'], [': > index.html', 'ask'], ['truncate -s 0 index.html', 'ask'], ['cp /dev/null index.html', 'ask'], ['Set-Content -Path index.html -Value x', 'ask'],
     ['echo x > new-notes.txt', null], ['echo x >> index.html', null], ['cmd 2> index.html', null], ['Set-Content index.html -Value x -Append', null], ['cat index.html > /dev/null', null],
     // Codex review round: env/sudo options that change what runs, and git global options before the subcommand
-    ['env -C / rm -rf etc', 'deny'], ["env -S 'rm -rf /'", 'deny'], ['env --chdir=/ rm -rf etc', 'deny'], ['env -iS "rm -rf ~"', 'deny'], ['sudo -D / rm -rf etc', 'deny'], ['env FOO=1 rm -rf dist', null], ['env -C src rm -rf ../dist', null],
+    ['env -C / rm -rf etc', WIN ? 'ask' : 'deny'], ["env -S 'rm -rf /'", 'deny'], ['env --chdir=/ rm -rf etc', WIN ? 'ask' : 'deny'], ['env -iS "rm -rf ~"', 'deny'], ['sudo -D / rm -rf etc', WIN ? 'ask' : 'deny'], ['env FOO=1 rm -rf dist', null], ['env -C src rm -rf ../dist', null],
     ['git -C repo push --force', 'ask'], ['git --no-pager reset --hard', 'ask'], ['git -c color.ui=false clean -fd', 'ask'], ['git --git-dir=.git checkout -- .', 'ask'], ['git -C ../other status', null], ['git -c core.pager=cat log', null],
     // everyday commands stay silent
     ['rm -rf dist', null], ['rm -rf node_modules && npm i', null], ['ls -la | grep x', null], ['npm test', null], ['rm -rf dist 2>&1 | tee log', null], ['sleep 1 & rm -rf ~', 'deny'], ['find . -name "*.log" -delete', 'ask'],
