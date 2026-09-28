@@ -106,6 +106,89 @@ function run(check, { PLUGIN, FIX }) {
   check('project: sessions that edited nothing are evicted before one that did; the current session survives', project.load(tmpRoot).sessions.EDITED && project.load(tmpRoot).sessions.EMPTY7 && Object.keys(project.load(tmpRoot).sessions).length === 6 && /no Stop check ran; last known broken: keep\.js/.test(project.describe(project.load(tmpRoot), 'EMPTY7')) , Object.keys(project.load(tmpRoot).sessions).join(','));
   require('fs').writeFileSync(project.fileFor(tmpRoot), '{not json');
   check('project: a corrupt record is treated as empty, never thrown', project.load(tmpRoot).stats.sessions === 0 && project.startSession(tmpRoot, 'Q').stats.sessions === 1);
+
+  // ---- security review round: one case per finding; the verdict is what the guard must return on every platform ----
+  const fs = require('fs');
+  const b64 = (s) => Buffer.from(s, 'utf16le').toString('base64');
+  const sub = { ...ctx, cwd: path.join(FIX, 'src') };
+  const SEC = [
+    // 1. variables, substitutions and parameter forms are never "inside the project": ask (or deny when they name home/system)
+    ['D=/; rm -rf $D', 'ask'], ['D=~; rm -rf "$D"', 'ask'], ['rm -rf $(echo ~)', 'ask'], ['rm -rf `echo ~`', 'ask'], ['rm -rf "$PWD"', 'ask'], ['rm -rf $PWD/*', 'ask'],
+    ['rm -rf $HOME""', 'deny'], ['rm -rf ${HOME:-/}', 'ask'], ['rm -rf ~root', 'deny'], ['cd ${HOME} && rm -rf *', 'deny'], ['for d in ~ /; do rm -rf "$d"; done', 'ask'],
+    ['Remove-Item -Recurse -Force $env:SystemRoot', 'deny'], ['Remove-Item -Recurse -Force $env:HOMEPATH', 'deny'], ['Remove-Item -Recurse -Force $env:APPDATA', 'deny'], ['Remove-Item -Recurse -Force $env:SystemDrive\\', 'deny'],
+    ['rd /s /q %HOMEDRIVE%%HOMEPATH%', 'deny'], ['rd /s /q %SystemDrive%\\', 'deny'], ['Remove-Item -Recurse (Resolve-Path ~)', 'ask'],
+    // 2. subshells and blocks: cd inside them is followed, and restored after
+    ['(cd ~ && rm -rf *)', 'deny'], ['(cd .. && rm -rf *)', 'deny'], ['(cd src && ls) && rm -rf dist', null], ['{ cd ~ && rm -rf *; }', 'deny'],
+    // 3. interpreters: the inner command is analyzed whether quoted, bare, $'…', wrapped in & { }, or base64-encoded
+    ['powershell -Command Remove-Item -Recurse -Force ~', 'deny'], ['cmd /c rd /s /q C:\\Users', 'deny'], ['cmd /c rmdir /s /q %USERPROFILE%', 'deny'], ['bash -lc "rm -rf ~"', 'deny'], ["bash -c $'rm -rf ~'", 'deny'],
+    ['powershell -Command "& { Remove-Item -Recurse -Force ~ }"', 'deny'], ['& { Remove-Item -Recurse -Force ~ }', 'deny'], ['eval rm -rf ~', 'deny'], ['bash -c "rm -rf \\"$HOME\\""', 'deny'],
+    ['powershell -EncodedCommand ' + b64('Remove-Item -Recurse -Force ~'), 'deny'], ['pwsh -enc ' + b64('Remove-Item -Recurse -Force dist'), null], ['powershell -e notbase64!!', 'ask'],
+    // 4. path-qualified, escaped or wrapped delete commands
+    ['/bin/rm -rf /', 'deny'], ['/bin/rm -rf ~', 'deny'], ['\\rm -rf ~', 'deny'], ['env rm -rf ~', 'deny'], ['timeout 30 rm -rf ~', 'deny'], ['nice -n 10 rm -rf ~', 'deny'], ['doas rm -rf /', 'deny'],
+    ['sudo -u root rm -rf /', 'deny'], ['sudo -E rm -rf ~', 'deny'], ['sudo -H rm -rf /home/user', 'deny'], ['find / -exec /bin/rm -rf {} +', 'deny'], ['find / -execdir rm -rf {} +', 'deny'], ['find ~ -execdir rm -rf {} +', 'deny'],
+    ['echo ~ | xargs -n 1 rm -rf', 'deny'], ['echo ~ | xargs -I {} rm -rf {}', 'deny'], ["echo ~ | xargs -d '\\n' rm -rf", 'deny'], ['cat list.txt | xargs rm -rf', 'ask'], ['echo dist | xargs rm -rf', 'ask'],
+    // 5. PowerShell pipelines that reach Remove-Item through ForEach-Object / Where-Object / Get-Item / a literal
+    ['Get-ChildItem C:\\ -Recurse | ForEach-Object { Remove-Item $_.FullName -Recurse -Force }', 'deny'], ["Get-ChildItem ~ -Recurse | Where-Object Name -like '*' | Remove-Item -Recurse -Force", 'deny'],
+    ['Get-Item ~ | Remove-Item -Recurse -Force', 'deny'], ['"$HOME" | Remove-Item -Recurse -Force', 'deny'], ['Get-ChildItem dist -Recurse | Remove-Item -Force', null], ['$x | Remove-Item -Recurse -Force', 'ask'],
+    // 6. -Recurse:$true is recursion; a switch that merely contains an r is not
+    ['Remove-Item C:\\ -Recurse:$true', 'deny'], ['Remove-Item -Recurse:$true -Path C:\\Users', 'deny'], ['Remove-Item ~ -Recurse:$true', 'deny'], ['Remove-Item -Force ~\\.npmrc', null],
+    // 7. backslash-escaped quotes do not swallow the rest of the line
+    ['echo "say \\"hi"; rm -rf ~', 'deny'], ["echo \\' ; rm -rf ~", 'deny'], ["echo it\\'s; rm -rf ~", 'deny'],
+    // 8. cd forms: bare cd goes home, Push-Location / -Path are followed, an unresolvable cd makes later relative deletes ask
+    ['cd && rm -rf *', 'deny', sub], ['Push-Location ~; Remove-Item -Recurse -Force *', 'deny', sub], ['Set-Location -Path ~; Remove-Item -Recurse -Force *', 'deny'], ['cd -Path ~; rm -r -fo *', 'deny'],
+    ['cd $X && rm -rf *', 'ask'], ['cd - && rm -rf *', 'ask'], ['pushd && rm -rf *', 'ask'], ['cd src && rm -rf *', null],
+    // 13. hard denies never fire on commit messages, grep patterns, comments or ordinary files under /dev/
+    ['git commit -m "feat(mkfs): add mkfs wrapper"', null], ['grep -rn "(diskpart" docs/', null], ['git commit -m "fix: redirect output > /dev/sda1 handling"', null], ['diskutil list > /dev/disk_list.txt', null], ['chmod -R u+x bin/ # /', null],
+    ['cat > /dev/sda', 'deny'], ['(mkfs.ext4 /dev/sdb1)', 'deny'],
+    // 22. narrow gaps: recursive chmod/chown of system or home paths, more git spellings, del /s at the root, robocopy /MIR, interpreter one-liners
+    ['chmod -R 000 ~', 'deny'], ['chmod -R 000 /*', 'deny'], ['chmod -R 777 /etc', 'deny'], ['chown -R nobody /usr', 'deny'], ['chmod -R 755 dist', null], ['chmod -R 700 ../other', 'ask'],
+    ['git push -uf origin main', 'ask'], ['git reset -q --hard', 'ask'], ['git checkout -- :/', 'ask'], ['git restore :/', 'ask'], ['git checkout -- ./', 'ask'], ['git push origin --delete main', 'ask'], ['git push origin :master', 'ask'], ['git push origin --delete feature-x', null],
+    ['del /s /q *.*', 'ask'], ['robocopy empty C:\\Users\\me /MIR', 'ask'], ['python -c "shutil.rmtree(\'/\')"', 'ask'], ['node -e "fs.rmSync(os.homedir(), {recursive:true})"', 'ask'], ['python -c "shutil.rmtree(\'build\')"', null],
+    // 17. a shell redirect / truncate over a large existing file asks (like the Write guard); small or new files pass
+    ['echo "<html></html>" > index.html', 'ask'], [': > index.html', 'ask'], ['truncate -s 0 index.html', 'ask'], ['cp /dev/null index.html', 'ask'], ['Set-Content -Path index.html -Value x', 'ask'],
+    ['echo x > new-notes.txt', null], ['echo x >> index.html', null], ['cmd 2> index.html', null], ['Set-Content index.html -Value x -Append', null], ['cat index.html > /dev/null', null],
+    // everyday commands stay silent
+    ['rm -rf dist', null], ['rm -rf node_modules && npm i', null], ['ls -la | grep x', null], ['npm test', null], ['rm -rf dist 2>&1 | tee log', null], ['sleep 1 & rm -rf ~', 'deny'], ['find . -name "*.log" -delete', 'ask'],
+  ];
+  for (const [cmd, expected, c] of SEC) {
+    const r = guard.evaluate(cmd, c || ctx);
+    check(`security: ${JSON.stringify(cmd)} -> ${expected || 'silent'}`, (r ? r.decision : null) === expected, r ? `${r.decision}: ${r.why}` : 'null');
+  }
+  check('security: the Bash tool hint forces POSIX escapes, the PowerShell tool hint disables them', guard.evaluate("echo it\\'s; rm -rf ~", { ...ctx, shell: 'posix' }).decision === 'deny' && guard.tokens('Remove-Item C:\\my\\ dir', 'ps')[1] === 'C:\\my\\' && guard.tokens('rm -rf my\\ dir', 'posix')[2] === 'my dir');
+  check('security: innerCommands also yields $(...) and `...` substitutions', JSON.stringify(guard.innerCommands('rm -rf $(cat list | head) && echo `whoami`')) === JSON.stringify(['cat list | head', 'whoami']), JSON.stringify(guard.innerCommands('rm -rf $(cat list | head) && echo `whoami`')));
+  // 16. a symlink inside the project that points outside is judged by where it really points
+  const outside = path.join(os.tmpdir(), `turbo-outside-${process.pid}`);
+  const link = path.join(FIX, 'linkout');
+  let linked = false;
+  try { fs.mkdirSync(outside, { recursive: true }); fs.symlinkSync(outside, link, 'dir'); linked = true; } catch { /* no symlink privilege (Windows without developer mode) */ }
+  if (linked) {
+    check('security: rm -rf <symlink>/ pointing outside the project asks; a real in-project dir allows', guard.classifyTarget('linkout/', ctx) === 'ask' && guard.classifyTarget('linkout', ctx) === 'ask' && guard.classifyTarget('src', ctx) === 'allow', JSON.stringify([guard.classifyTarget('linkout/', ctx), guard.classifyTarget('src', ctx)]));
+    check('realpathDeep: resolves the existing part of a path and keeps the rest', fsx.realpathDeep(path.join(link, 'nope', 'x.txt')) === path.join(fs.realpathSync.native(outside), 'nope', 'x.txt'), fsx.realpathDeep(path.join(link, 'nope', 'x.txt')));
+    try { fs.unlinkSync(link); } catch { /* ignore */ }
+  } else console.log('  skip symlink tests (cannot create symlinks here)');
+  try { fs.rmSync(outside, { recursive: true, force: true }); } catch { /* ignore */ }
+  // 14. a poisoned probes.json never becomes a command to run
+  {
+    const proc = path.join(PLUGIN, 'lib', 'proc');
+    const dataDir = fsx.dataDir();
+    const probeFile = path.join(dataDir, 'probes.json');
+    const prev = fs.existsSync(probeFile) ? fs.readFileSync(probeFile, 'utf8') : null;
+    fs.writeFileSync(probeFile, JSON.stringify({ ts: Date.now(), node: process.version, python: { cmd: path.join(dataDir, 'evil.sh'), pre: [] }, powershell: path.join(dataDir, 'evil.exe'), bash: '/tmp/evil' }));
+    delete require.cache[require.resolve(proc)];
+    const fresh = require(proc);
+    const py = fresh.pythonCmd(), ps = fresh.powershellCmd(), sh = fresh.bashCmd();
+    check('proc: cached probe commands outside the fixed candidate lists are ignored (re-probed), never spawned', (py === null || ['py', 'python', 'python3'].includes(py.cmd)) && (ps === null || ps === 'pwsh' || ps === 'powershell') && (sh === null || sh === 'bash' || (WIN && /bash\.exe$/i.test(sh))), JSON.stringify({ py, ps, sh }));
+    if (prev != null) fs.writeFileSync(probeFile, prev); else { try { fs.unlinkSync(probeFile); } catch { /* ignore */ } }
+    delete require.cache[require.resolve(proc)];
+  }
+  check('fsx: without CLAUDE_PLUGIN_DATA the data dir is a private per-user location, never a shared temp path', (() => { const saved = process.env.CLAUDE_PLUGIN_DATA; delete process.env.CLAUDE_PLUGIN_DATA; try { const d = fsx.dataDir(); return d !== path.join(os.tmpdir(), 'claude-turbo') && (d.startsWith(os.homedir()) || (process.env.XDG_CACHE_HOME && d.startsWith(process.env.XDG_CACHE_HOME)) || (process.env.LOCALAPPDATA && d.startsWith(process.env.LOCALAPPDATA)) || /claude-turbo-/.test(d)); } finally { if (saved !== undefined) process.env.CLAUDE_PLUGIN_DATA = saved; } })(), fsx.dataDir());
+  // 15. the installer's user-scope allowlist holds read-only checks only, and requiring it installs nothing
+  const installer = require(path.join(PLUGIN, '..', '..', 'install.js'));
+  check('install: no test/build runner (npm test, npm run build, pytest) is allowed at user scope; node --check and py_compile are', !installer.ALLOW_RULES.some((r) => /npm (test|run)|pytest/.test(r)) && installer.ALLOW_RULES.some((r) => r === 'Bash(node --check *)') && installer.ALLOW_RULES.some((r) => r === 'PowerShell(python -m py_compile *)') && installer.PROJECT_HINT.length >= 4, installer.ALLOW_RULES.join(','));
+  // 21. search regex filter and output cap
+  const server = require(path.join(PLUGIN, 'mcp', 'server.js'));
+  check('server: unsafeRegex rejects (a|aa)+$, (a?){30}a{30}, (a+)+ and [a-z]+* ; accepts ordinary patterns', server.unsafeRegex('(a|aa)+$') && server.unsafeRegex('(a?){30}a{30}') && server.unsafeRegex('(a+)+') && server.unsafeRegex('[a-z]+*') && !server.unsafeRegex('def \\w+\\(') && !server.unsafeRegex('(foo|bar)') && !server.unsafeRegex('^import .* from') && !server.unsafeRegex('\\bTODO\\b'));
+  check('server: cap() clamps max_chars to 200,000 whatever the caller asks', server.cap('x'.repeat(300000), 1e9).length < 200500 && server.cap('x'.repeat(1000), 1e9).length === 1000);
   try { require('fs').unlinkSync(project.fileFor(tmpRoot)); } catch { /* ignore */ }
 
   // ---- user options (CLAUDE_PLUGIN_OPTION_<KEY>) ----

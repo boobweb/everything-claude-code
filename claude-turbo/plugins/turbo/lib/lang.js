@@ -398,8 +398,25 @@ function stripJsonComments(text) {
 }
 
 // ---------------- HTML (and Vue / Svelte / Astro) ----------------
-const SCRIPT_RE = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
-const STYLE_RE = /<style\b([^>]*)>([\s\S]*?)<\/style\s*>/gi;
+/** <style> blocks by sequential scan (linear even when a document has many unclosed tags). */
+function styleBlocks(text) {
+  const out = [];
+  const openRe = /<style\b/gi, closeRe = /<\/style\s*>/gi;
+  let pos = 0;
+  while (pos < text.length) {
+    openRe.lastIndex = pos;
+    const m = openRe.exec(text);
+    if (!m) break;
+    const tagEnd = text.indexOf('>', m.index);
+    if (tagEnd < 0) break;
+    closeRe.lastIndex = tagEnd + 1;
+    const cm = closeRe.exec(text);
+    const contentEnd = cm ? cm.index : text.length;
+    out.push({ index: m.index, contentStart: tagEnd + 1, contentEnd, end: cm ? cm.index + cm[0].length : text.length });
+    pos = cm ? cm.index + cm[0].length : text.length;
+  }
+  return out;
+}
 
 function lineIndexer(text) {
   // returns fn(offset) -> 1-based line, using a precomputed newline table (binary search)
@@ -498,15 +515,16 @@ function extractHTML(text, { maxSymbols = 400 } = {}) {
     }
   }
   let m;
-  STYLE_RE.lastIndex = 0;
   let sn = 0;
-  while ((m = STYLE_RE.exec(text)) && syms.length < maxSymbols) {
-    if (inComment(m.index) || blocks.some((b) => m.index >= b.contentStart && m.index < b.contentEnd)) continue;
+  for (const sb of styleBlocks(text)) {
+    if (syms.length >= maxSymbols) break;
+    if (inComment(sb.index) || blocks.some((b) => sb.index >= b.contentStart && sb.index < b.contentEnd)) continue;
     sn++;
-    syms.push({ name: `<style #${sn}>`, kind: 'style', line: lineAt(m.index), sig: `${m[2].length.toLocaleString('en-US')} chars, lines ${lineAt(m.index)}-${lineAt(m.index + m[0].length)}` });
+    syms.push({ name: `<style #${sn}>`, kind: 'style', line: lineAt(sb.index), sig: `${(sb.contentEnd - sb.contentStart).toLocaleString('en-US')} chars, lines ${lineAt(sb.index)}-${lineAt(sb.end)}` });
   }
-  // ids on elements (outside scripts): cheap and very useful for DOM-heavy apps
-  const ID_RE = /<([a-zA-Z][\w-]*)\b[^>]*?\sid\s*=\s*["']([^"']+)["']/g; // \sid: data-id is not an id
+  // ids on elements (outside scripts): cheap and very useful for DOM-heavy apps. The attribute scan is
+  // bounded (a tag longer than 4000 chars is not an element) so a run of unclosed '<' stays linear.
+  const ID_RE = /<([a-zA-Z][\w-]*)\b[^>]{0,4000}?\sid\s*=\s*["']([^"']+)["']/g; // \sid: data-id is not an id
   let ids = 0;
   while ((m = ID_RE.exec(text)) && syms.length < maxSymbols) {
     if (inComment(m.index) || blocks.some((b) => m.index >= b.contentStart && m.index < b.contentEnd)) continue; // commented out or inside script content

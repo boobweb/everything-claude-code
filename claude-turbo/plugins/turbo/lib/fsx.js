@@ -251,18 +251,54 @@ function expandBraces(s, limit = 64) {
   return out.slice(0, limit);
 }
 
-function tmpDir() {
-  const d = path.join(os.tmpdir(), 'claude-turbo');
-  try { fs.mkdirSync(d, { recursive: true }); } catch { /* ignore */ }
+/**
+ * Real path of `p` with symlinks resolved, even when the leaf does not exist yet: the deepest
+ * existing ancestor is resolved and the remainder re-joined. Used to judge where a path really
+ * points before comparing it with the project root.
+ */
+function realpathDeep(p) {
+  let cur = path.resolve(p);
+  const tail = [];
+  for (let i = 0; i < 64; i++) {
+    try { const real = fs.realpathSync.native(cur); return tail.length ? path.join(real, ...[...tail].reverse()) : real; } catch { /* not there yet */ }
+    const parent = path.dirname(cur);
+    if (parent === cur) return path.resolve(p);
+    tail.push(path.basename(cur));
+    cur = parent;
+  }
+  return path.resolve(p);
+}
+
+/** Make `d` (mode 0700) and, on POSIX, refuse it unless this user owns it: a shared temp path another user pre-created is not ours. */
+function privateDir(d) {
+  try { fs.mkdirSync(d, { recursive: true, mode: 0o700 }); } catch { /* ignore */ }
+  if (process.platform !== 'win32' && typeof process.getuid === 'function') {
+    try { const st = fs.lstatSync(d); if (!st.isDirectory() || st.uid !== process.getuid()) return null; } catch { return null; }
+  }
   return d;
 }
 
+let tmpCache = null;
+/** Per-user temp directory for the checkers' scratch files (never the shared /tmp/claude-turbo of old). */
+function tmpDir() {
+  if (tmpCache) return tmpCache;
+  let user = 'user';
+  try { user = os.userInfo().username.replace(/[^\w.-]/g, '_'); } catch { /* ignore */ }
+  tmpCache = privateDir(path.join(os.tmpdir(), `claude-turbo-${user}`)) || fs.mkdtempSync(path.join(os.tmpdir(), 'claude-turbo-'));
+  return tmpCache;
+}
+
+/**
+ * Where hooks, the MCP server and the tidy/stats scripts keep state: CLAUDE_PLUGIN_DATA when Claude
+ * Code provides it, else a private per-user cache directory (never a world-shared temp path).
+ */
 function dataDir() {
-  const base = process.env.CLAUDE_PLUGIN_DATA && process.env.CLAUDE_PLUGIN_DATA.trim()
-    ? process.env.CLAUDE_PLUGIN_DATA.trim()
-    : tmpDir();
-  try { fs.mkdirSync(base, { recursive: true }); } catch { /* ignore */ }
-  return base;
+  const env = process.env.CLAUDE_PLUGIN_DATA && process.env.CLAUDE_PLUGIN_DATA.trim();
+  if (env) { try { fs.mkdirSync(env, { recursive: true }); } catch { /* ignore */ } return env; }
+  const base = process.platform === 'win32'
+    ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'claude-turbo')
+    : path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'claude-turbo');
+  return privateDir(base) || tmpDir();
 }
 
 /** Find the project root: explicit env, else walk up from `start` looking for .git / package.json / CLAUDE.md. */
@@ -284,5 +320,5 @@ module.exports = {
   IGNORE_DIRS, BINARY_EXT, LOCKFILES,
   statSafe, exists, isDir, isFile, normPath, toPosix, relDisplay, looksBinary, readText,
   humanSize, countLines, walk, readGitignore, globToRegExp, makeGlobMatcher, expandBraces,
-  tmpDir, dataDir, findProjectRoot,
+  tmpDir, dataDir, findProjectRoot, realpathDeep,
 };

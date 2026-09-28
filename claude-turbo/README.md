@@ -23,7 +23,7 @@ macOS / Linux: `./install.sh` (same options).
 
 Optional: `.\install.ps1 -WithPlaywright` also installs the headless Chromium used by `/turbo:smoke` (about 300MB). Without it, the smoke skill tells you the one-line install command when you first need it.
 
-What the installer does: copies the kit, runs the server self-test, registers the folder as a local plugin marketplace (`turbo-local`), installs the `turbo` plugin at user scope (all projects), and edits `~/.claude/settings.json` (backups written next to it): an `allow` list for Turbo's read-only tools and common check commands (`node --check`, `npm test`, `npm run lint/build`, `pytest`) and an `ask` list for `git push --force`, `git reset --hard` and `git clean`, each with matching `Bash(...)` and `PowerShell(...)` rules so it works with or without Git Bash. Skip that with `-NoPermissions`. Other switches: `-InPlace` (use the folder where it is instead of copying), `-DryRun` (show what would happen), `-Uninstall`.
+What the installer does: copies the kit, runs the server self-test, registers the folder as a local plugin marketplace (`turbo-local`), installs the `turbo` plugin at user scope (all projects), and edits `~/.claude/settings.json` (backups written next to it): an `allow` list for Turbo's read-only tools and read-only check commands (`node --check`, `py_compile`; test and build runners such as `npm test` or `pytest` are left to each project's own `.claude/settings.json` because they run whatever a cloned repository says) and an `ask` list for `git push --force`, `git reset --hard` and `git clean`, each with matching `Bash(...)` and `PowerShell(...)` rules so it works with or without Git Bash. Skip that with `-NoPermissions`. Other switches: `-InPlace` (use the folder where it is instead of copying), `-DryRun` (show what would happen), `-Uninstall`.
 
 ## What you get
 
@@ -78,7 +78,7 @@ node "$env:USERPROFILE\.claude\turbo-kit\plugins\turbo\scripts\tidy.js" --undo "
 
 Inside Claude Code: `/mcp` lists `plugin:turbo:code` (connected); `/hooks` shows five Turbo hooks; `/turbo:help` prints the overview. From a PowerShell terminal: `node "$env:USERPROFILE\.claude\turbo-kit\plugins\turbo\mcp\server.js" --selftest`.
 
-Run the test suite (builds a throwaway fixture project, exercises every parser, tool, hook and the tidy script; 15 to 30 s): `node tests\run-tests.js`. It reports 289 checks on a bare machine and a few more when optional tools are present (Python, typescript, Playwright, the claude CLI); missing ones are skipped and named, never failed.
+Run the test suite (builds a throwaway fixture project, exercises every parser, tool, hook and the tidy script; 15 to 30 s): `node tests\run-tests.js`. It reports about 450 checks on a bare machine and a few more when optional tools are present (Python, typescript, Playwright, the claude CLI); missing ones are skipped and named, never failed.
 
 ## Update
 
@@ -94,7 +94,7 @@ Unzip the new kit and run the installer again; it refreshes the installed copy (
 - **MCP server not listed**: `node <kit>\plugins\turbo\mcp\server.js --selftest` must print OK; make sure `node` is on PATH for the shell Claude Code was launched from. If the environment variable `CLAUDE_CODE_SKIP_PLUGIN_MCP_SERVERS` is set, plugin servers are disabled by design.
 - **Hooks not firing**: hooks from settings and plugins are held until you accept the workspace trust dialog in a new folder. `claude --debug` shows each hook's input/output. `TURBO_DEBUG=1` makes the hooks print timing to stderr.
 - **A hook flags a file you intentionally left broken**: tell Claude it is intentional; the Stop check blocks at most once per turn. Or set `stop_check` off.
-- **The command guard asks too often**: set `guard_level` to `deny-only`.
+- **The command guard asks too often**: set `guard_level` to `deny-only`. It asks whenever it cannot resolve a target (a variable, `$(...)`, a working directory it lost track of); a literal path inside the project never asks. `SECURITY.md` lists exactly what is denied and what asks.
 - **Turbo tools refuse a path**: by design they read only inside the session's working directories (the folder Claude Code was started in plus `--add-dir` folders); Claude falls back to the Read tool for anything else.
 - **PowerShell parse check**: uses `pwsh` or `powershell` if present; Python checks use `py -3`/`python`; TypeScript checks use the project's own `typescript` package. Missing tools are skipped, never reported as errors. Which one was found is cached for a day in the plugin data directory (`probes.json`).
 - **Playwright missing** (smoke exit code 3): `npm install -g playwright` then `npx playwright install chromium` (two commands; Windows PowerShell 5.1 has no `&&`).
@@ -119,12 +119,13 @@ claude-turbo/
 │   ├── hooks/hooks.json                     5 hooks (exec-form node, cross-platform)
 │   ├── mcp/server.js                        zero-dependency MCP stdio server
 │   ├── scripts/                             hook scripts, smoke.js, stats.js, tidy.js
-│   ├── lib/                                 shared: parsers, checks, folding, options, continuity record
+│   ├── lib/                                 shared: parsers, checks, command guard, folding, options, continuity record
 │   ├── vendor/acorn/                        acorn (MIT), the only third-party code
 │   ├── skills/                              11 skills
 │   ├── agents/                              3 subagents
 │   └── evals/                               claude plugin eval cases, fixtures, published results
 ├── tests/                                   fixture builder, MCP client, test suite
+├── SECURITY.md                              threat model, what the guards enforce, review history
 └── .github/workflows/test.yml               CI matrix (ubuntu, windows, macos)
 ```
 

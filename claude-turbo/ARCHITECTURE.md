@@ -28,13 +28,14 @@ Everything is CommonJS, Node 18 or newer, no `npm install` anywhere. Hooks and t
 
 | module | responsibility |
 |---|---|
-| `fsx.js` | path normalization (backslashes, `~`, Git Bash `/c/`), bounded directory walk with `.gitignore` support, binary detection, size and line helpers, `dataDir()` (= `CLAUDE_PLUGIN_DATA`, else a temp folder), `findProjectRoot()` |
+| `fsx.js` | path normalization (backslashes, `~`, Git Bash `/c/`), `realpathDeep()` (symlinks resolved even for paths that do not exist yet), bounded directory walk with `.gitignore` support, binary detection, size and line helpers, `dataDir()` (= `CLAUDE_PLUGIN_DATA`, else a private per-user cache directory), `findProjectRoot()` |
+| `cmdguard.js` | the command guard: deny/ask pattern lists and the structural delete analysis (segments, subshells and blocks, quote and escape handling, `cd` tracking, prefix stripping, interpreter and encoded-command recursion, pipeline sources, symlink-aware target classification, the redirect/truncate guard). `hook-pre-bash.js` is a thin wrapper; `SECURITY.md` lists what it enforces |
 | `lang.js` | language detection by extension, `outline()` entry point, HTML script/style block location with line numbers, regex heuristics for ~30 languages, Markdown/JSON/CSS outlines, `symbolEnd()` bracket/indent matching for languages without a parser |
 | `js-ast.js` | acorn: parse as module or script, walk the AST into symbols with exact `line`/`endLine`, bare `sig` (parameter list) and `mods` (async, static, *, global); `checkJS()` syntax errors with line and column |
 | `py-ast.js` | one Python interpreter run outlines up to 40 files at a time through the stdlib `ast` module; results cached by mtime; returns `{error}` for syntax errors |
 | `ts-ast.js` | uses the project's own `typescript` package when `require.resolve` finds it (from the file's directory, cwd, or `NODE_PATH`); never bundled (8MB+); same symbol shape |
 | `check.js` | per-file-type syntax checks: JS/HTML inline scripts (acorn, then node), JSON (exact error position), Python (`ast.parse`), CSS (brace balance), PowerShell (the real parser via `pwsh`/`powershell`), shell (`bash -n`, Git Bash only on Windows), TypeScript (`transpileModule` diagnostics), YAML tabs, XML tag balance |
-| `proc.js` | bounded `spawnSync`, and which `python`/`powershell`/`bash` to use, probed once and cached on disk for a day (a PowerShell start costs 1 to 2 s on Windows) |
+| `proc.js` | bounded `spawnSync`, and which `python`/`powershell`/`bash` to use, probed once and cached on disk for a day (a PowerShell start costs 1 to 2 s on Windows); a cached value is honored only when it is one of the fixed candidates |
 | `fold.js` | classify and fold long lines (base64 data URIs, minified code), blob maps with owner labels |
 | `git.js` / `stack.js` | read-only git snapshot with timeouts; stack detection from manifest files |
 | `hookio.js` | stdin JSON, stdout JSON reply, fail-open `main()`, per-session state file under `dataDir()/sessions/` |
@@ -47,8 +48,8 @@ The symbol shape is the contract between parsers and renderers: `{ name, kind, l
 
 `mcp/server.js` implements the stdio transport itself (newline-delimited JSON-RPC 2.0, protocol versions 2025-06-18 down to 2024-11-05, `roots/list` after `initialized`). Seven read-only tools: `repo_map`, `file_outline`, `read_range`, `find_symbol`, `search`, `syntax_check`, `file_stats`. Every tool:
 
-- resolves paths against the project root and refuses anything outside the session roots (`assertInside`), so the model cannot read `/etc/passwd` through it;
-- caps output (`max_chars`, default 12,000) and tells the model how to narrow the request;
+- resolves paths against the project root and refuses anything outside the session roots (`assertInside`), lexically and after `realpath`, so the model cannot read `/etc/passwd` through it, not even through a symlink inside the project;
+- caps output (`max_chars`, default 12,000, hard limit 200,000; lines over 64 KB are always folded) and tells the model how to narrow the request;
 - uses the outline cache (keyed by path, mtime and size; bounded by bytes and entries) so repeated calls on the same big file cost nothing.
 
 `search` shells out to ripgrep when present (`-e pattern`, literal unless `regex: true`, globs via `-g`) and falls back to a JS scanner that rejects regexes with nested quantifiers. `find_symbol` prefers the parser's `endLine` and falls back to bracket matching. `repo_map` primes the Python outline cache with one interpreter run for all `.py` files it will show.
@@ -60,7 +61,7 @@ The symbol shape is the contract between parsers and renderers: `{ name, kind, l
 | SessionStart | `hook-session-start.js` | opens the session state, counts the session in the project record, and (unless `brief=false`) injects: stack and check commands, large files with blob share, the continuity line, the handoff note, one toolkit line. Nothing Claude Code already shows (cwd, git status, commits, layout). Typical size 600 to 900 characters. | 15 s |
 | PostToolUse Edit/Write/MultiEdit | `hook-post-edit.js` | syntax-checks the edited file; silent on success, `decision: block` with `file:line:col` on failure; records the file in the session state and the project record | 30 s |
 | PreToolUse Write | `hook-pre-write.js` | asks before replacing a file over 2MB, shrinking one over 48KB by more than 40%, or writing a "... rest unchanged" placeholder; only under `guard_level=strict` | 15 s |
-| PreToolUse Bash/PowerShell | `hook-pre-bash.js` | structural delete analysis plus deny/ask pattern lists; `deny` for catastrophic commands, `ask` for risky ones (skipped under `deny-only`), nothing under `off` | 15 s |
+| PreToolUse Bash/PowerShell | `hook-pre-bash.js` (`lib/cmdguard.js`) | structural delete analysis plus deny/ask pattern lists; `deny` for catastrophic commands, `ask` for risky ones and for anything it cannot resolve (skipped under `deny-only`), nothing under `off`; also asks before a shell redirect truncates a large file | 15 s |
 | Stop | `hook-stop.js` | re-checks every file edited this session plus git-changed files touched since the session began, skipping files already verified and untouched; in-process checks first, spawning ones (Python, PowerShell, shell) last, each spawned checker capped at the budget that is left; blocks once with a report; on the second Stop (`stop_hook_active`) it re-checks for the record but never blocks; disabled by `stop_check=false` | 12 s of checks, 20 s timeout |
 
 All hooks are exec-form (`node` + `args`) so they need no shell and work with paths containing spaces on Windows. Every hook exits 0 on any internal error (`hookio.main`), because a broken hook must never break Claude Code.
@@ -87,12 +88,12 @@ Declared in `plugin.json` `userConfig` and delivered to hooks by Claude Code as 
 
 ## Tests and CI
 
-`node tests/run-tests.js` builds a fixture project in a temp directory and runs about 290 checks: static checks on the kit (every js/json parses, hooks.json handlers exist, frontmatter is strict-YAML safe), parser units (exact ranges, module detection, JSX skip, Python and TypeScript exactness when available), guard and path units with per-platform expectations, tidy report/apply/undo, the MCP server end to end over stdio, every hook with real payloads, the Playwright smoke test when Playwright is installed, and `claude plugin validate` when the CLI is installed. Optional tools are skipped, never failed. The GitHub Actions matrix installs typescript, Playwright and the claude CLI so all of it runs on ubuntu, windows and macos with Node 20 and 24.
+`node tests/run-tests.js` builds a fixture project in a temp directory and runs about 450 checks: static checks on the kit (every js/json parses, hooks.json handlers exist, frontmatter is strict-YAML safe), parser units (exact ranges, module detection, JSX skip, Python and TypeScript exactness when available), guard and path units with per-platform expectations (including the 120-case security table from the adversarial review), tidy report/apply/undo, the MCP server end to end over stdio, every hook with real payloads, the Playwright smoke test when Playwright is installed, and `claude plugin validate` when the CLI is installed. Optional tools are skipped, never failed. The GitHub Actions matrix installs typescript, Playwright and the claude CLI so all of it runs on ubuntu, windows and macos with Node 20 and 24.
 
 ## Decisions worth knowing
 
 - **Zero dependencies, vendored acorn.** A plugin that needs `npm install` fails on machines without a working npm, and a dependency tree is an attack surface; acorn is 150KB of MIT code and covers JavaScript completely. TypeScript is not bundled (8MB) but used when the project has it.
 - **Real parsers, heuristic fallback.** Exact ranges matter for `find_symbol` and for `read_range` cost; when a file does not parse (mid-edit) the regex outline still gives the model something to navigate with, labeled `heuristic`.
 - **The brief contains only what Claude Code lacks.** Every character of the brief is paid on every turn of every session. Measured overhead of the whole plugin per model call: about 3.7k tokens (skills and agents about 1.4k, tool schemas about 2k, brief about 0.2k); see `EVALS.md`. Measure it any time with the SessionStart hook on a real repo (it logs the size under `TURBO_DEBUG=1`).
-- **Guards are a safety net, not a sandbox.** The command guard analyzes the command text structurally; anything it cannot classify passes. It denies only what is catastrophic on any machine and asks for the rest so the user stays in control.
+- **Guards are a safety net, not a sandbox.** The command guard analyzes the command text structurally; it denies only what is catastrophic on any machine, asks for the rest and for anything it cannot resolve (a variable, a substitution, a lost working directory), and lets ordinary in-project commands through silently. `SECURITY.md` has the threat model and the review history.
 - **Hooks fail open, tools fail closed.** A hook error must never block the user's work; a tool refusing a path outside the project is the right default.

@@ -52,10 +52,20 @@ function allowedRoots() {
   if (!set.size) set.add(fsx.findProjectRoot(process.cwd()));
   return [...set];
 }
+/**
+ * A path is inside the allowed roots only when both its lexical form and its real location (symlinks
+ * resolved, macOS /tmp -> /private/tmp included) fall under a root: `src/link -> /etc` must not open /etc.
+ */
 function insideAllowed(abs) {
   const norm = (p) => (process.platform === 'win32' ? p.toLowerCase() : p).replace(/[\\/]+$/, '');
-  const a = norm(path.resolve(abs));
-  return allowedRoots().some((r) => { const n = norm(r); return a === n || a.startsWith(n + path.sep); });
+  const within = (p, r) => p === r || p.startsWith(r + path.sep);
+  const lexical = norm(path.resolve(abs));
+  let real;
+  try { real = norm(fsx.realpathDeep(abs)); } catch { return false; }
+  const roots = allowedRoots();
+  const lexOk = roots.some((r) => within(lexical, norm(r)) || within(lexical, norm(fsx.realpathDeep(r))));
+  const realOk = roots.some((r) => within(real, norm(fsx.realpathDeep(r))));
+  return lexOk && realOk;
 }
 function assertInside(abs) {
   if (!insideAllowed(abs)) throw new Error(`Outside the project: ${fsx.toPosix(abs)}. Turbo tools read only inside the working directories (${allowedRoots().map(fsx.toPosix).join(', ')}); use the Read tool for other files.`);
@@ -108,10 +118,21 @@ function getOutline(abs, maxSymbols = 400) {
   return entry;
 }
 
+const MAX_CHARS_LIMIT = 200000; // no single tool result may exceed this, whatever max_chars says
 function cap(text, maxChars) {
-  const m = Math.max(500, Number(maxChars) || DEFAULT_MAX_CHARS);
+  const m = Math.min(MAX_CHARS_LIMIT, Math.max(500, Number(maxChars) || DEFAULT_MAX_CHARS));
   if (text.length <= m) return text;
-  return text.slice(0, m) + `\n…[output truncated at ${m.toLocaleString('en-US')} chars; narrow the request (path, filter, line range) or raise max_chars]`;
+  return text.slice(0, m) + `\n…[output truncated at ${m.toLocaleString('en-US')} chars; narrow the request (path, filter, line range)${m < MAX_CHARS_LIMIT ? ' or raise max_chars' : ''}]`;
+}
+
+/**
+ * Reject patterns whose backtracking can be exponential: a quantified group that itself contains a
+ * quantifier or an alternation ((a+)+, (a|aa)+, (a?){30}), or a quantified class followed by a quantifier.
+ * Conservative on purpose: literal search and rg (the usual engine) are unaffected.
+ */
+function unsafeRegex(pattern) {
+  const group = String.raw`\((?:[^()\\]|\\.)*(?:[+*?{]|\|)(?:[^()\\]|\\.)*\)`;
+  return new RegExp(`${group}\\s*[+*?{]`).test(pattern) || /\[[^\]]*\][+*]\)?[+*{]/.test(pattern) || /\)\{\d+,?\d*\}[+*]/.test(pattern);
 }
 
 const CALLABLE = new Set(['function', 'method', 'constructor', 'getter', 'setter']);
@@ -289,8 +310,10 @@ function toolReadRange(a) {
   if (start > total) throw new Error(`start_line ${start} is past the end of the file (${total} lines)`);
   end = Math.min(end, total);
   const slice = lines.slice(start - 1, end);
-  const f = fold.formatLines(slice, start, { fold: a.fold !== false, over: Number(a.fold_over) || 400, keep: 120 });
-  const head = `# ${fsx.relDisplay(abs, root)} lines ${start}-${end} of ${total} (${fsx.humanSize(size)})${f.foldedCount ? `; ${f.foldedCount} long line${f.foldedCount === 1 ? '' : 's'} folded (${fsx.humanSize(f.foldedChars)}; pass fold:false to expand)` : ''}`;
+  // fold:false expands long lines, but a line over 64 KB (a base64 blob, minified bundle) is always folded
+  const HARD_FOLD = 64 * 1024;
+  const f = fold.formatLines(slice, start, { fold: true, over: a.fold === false ? HARD_FOLD : Math.min(HARD_FOLD, Number(a.fold_over) || 400), keep: 120 });
+  const head = `# ${fsx.relDisplay(abs, root)} lines ${start}-${end} of ${total} (${fsx.humanSize(size)})${f.foldedCount ? `; ${f.foldedCount} long line${f.foldedCount === 1 ? '' : 's'} folded (${fsx.humanSize(f.foldedChars)}; ${a.fold === false ? 'lines over 64 KB are always folded; use read_range with start_line/end_line on a smaller span' : 'pass fold:false to expand'})` : ''}`;
   return cap(`${head}\n${f.text}${end < total ? `\n…(${total - end} more lines; continue with start_line: ${end + 1})` : ''}`, a.max_chars || Math.max(DEFAULT_MAX_CHARS, maxLines * 160));
 }
 
@@ -411,7 +434,7 @@ function toolSearch(a) {
     }
   }
   if (engine === 'js') {
-    if (isRegex && /(\([^()]*[+*][^()]*\)[+*{]|\[[^\]]*\][+*]\)?[+*])/.test(pattern)) throw new Error('This regex has nested quantifiers that can hang the search engine; simplify it or search for a literal string.');
+    if (isRegex && unsafeRegex(pattern)) throw new Error('This regex has a quantified group containing a quantifier or an alternation (nested quantifiers can hang the search engine); simplify it or search for a literal string.');
     const re = isRegex ? new RegExp(pattern, caseSensitive ? '' : 'i') : null;
     const needle = caseSensitive ? pattern : pattern.toLowerCase();
     const inc = a.include ? fsx.makeGlobMatcher(a.include) : null;
@@ -709,4 +732,4 @@ if (require.main === module) {
   serve();
 }
 
-module.exports = { TOOLS, HANDLERS, handle };
+module.exports = { TOOLS, HANDLERS, handle, insideAllowed, unsafeRegex, cap };

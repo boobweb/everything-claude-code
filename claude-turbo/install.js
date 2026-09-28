@@ -31,7 +31,10 @@ const STATE_FILE = path.join(CLAUDE_DIR, 'turbo-kit.installed.json');
 // The same rules are emitted for the Bash tool and for the PowerShell tool (Windows without Git
 // Bash routes every shell command through the PowerShell tool, where Bash(...) rules never match).
 const TOOLS = ['repo_map', 'file_outline', 'find_symbol', 'read_range', 'search', 'syntax_check', 'file_stats'];
-const CHECK_CMDS = ['node --check *', 'npm test *', 'npm run test *', 'npm run lint *', 'npm run build *', 'pytest *', 'python -m pytest *', 'python -m py_compile *', 'py -m py_compile *'];
+// Only read-only checks go on the user-scope allowlist: `npm test`, `npm run build` or `pytest` run whatever
+// a cloned repository's package.json / conftest.py says, so those belong in a project's own .claude/settings.json.
+const CHECK_CMDS = ['node --check *', 'python -m py_compile *', 'py -m py_compile *'];
+const PROJECT_HINT = ['npm test *', 'npm run test *', 'npm run lint *', 'npm run build *', 'pytest *', 'python -m pytest *'];
 const RISKY_CMDS = ['git push --force *', 'git push -f *', 'git reset --hard *', 'git clean *'];
 const both = (cmds) => cmds.flatMap((c) => [`Bash(${c})`, `PowerShell(${c})`]);
 const ALLOW_RULES = ['mcp__plugin_turbo_code', ...TOOLS.map((t) => `mcp__plugin_turbo_code__${t}`), ...both(CHECK_CMDS)];
@@ -112,6 +115,7 @@ function mergePermissions(settingsPath) {
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   }
   log(`   allow += ${added.length} rule(s): ${added.join(', ')}`);
+  log(`   (test/build runners such as ${PROJECT_HINT.slice(0, 3).join(', ')} are deliberately not allowed at user scope; add them to a trusted project's .claude/settings.json)`);
   if (askAdded.length) log(`   ask   += ${askAdded.length} rule(s): ${askAdded.join(', ')}`);
   log(`   (backups: settings.json.turbo-original.bak and settings.json.turbo-last.bak next to it)`);
   return { added, askAdded };
@@ -255,4 +259,6 @@ Uninstall:    node "${path.join(kitDir, 'install.js')}" --uninstall
 `);
 }
 
-try { main(); } catch (e) { die(e && e.stack || String(e)); }
+// Run only when executed directly: requiring this file (tests, tooling) must never install anything.
+if (require.main === module) { try { main(); } catch (e) { die(e && e.stack || String(e)); } }
+module.exports = { ALLOW_RULES, ASK_RULES, CHECK_CMDS, PROJECT_HINT };

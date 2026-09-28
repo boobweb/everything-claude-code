@@ -20,6 +20,8 @@
 // Options: --min-size <bytes> (duplicates, default 1024)  --older-than <days> (junk/ai/heavy age, default 30)
 //          --exclude <glob> (repeatable)  --max-files <n> (default 400000)  --limit <n> (items listed per category)
 //          --claude-dir <dir> (default ~/.claude)  --include-heavy (also quarantine heavy items with --apply)
+//          --include-projects (files inside project folders may be quarantined; by default a folder holding
+//          .git, package.json, pyproject.toml etc. is a unit: nothing in it is a duplicate or an empty file)
 //          --all (do not skip system folders)  --quiet
 
 const fs = require('fs');
@@ -41,6 +43,7 @@ function parseArgs(argv) {
       case '--quiet': a.quiet = true; break;
       case '--all': a.all = true; break;
       case '--include-heavy': a.includeHeavy = true; break;
+      case '--include-projects': a.includeProjects = true; break;
       case '--only': a.only = String(next()).split(',').map((s) => s.trim()).filter(Boolean); break;
       case '--min-size': a.minSize = Number(next()); break;
       case '--older-than': a.olderThan = Number(next()); break;
@@ -60,7 +63,13 @@ function parseArgs(argv) {
 
 // ---------------------------------------------------------------------------
 // what to skip
-const SKIP_DIR_NAMES = new Set(['.git', '.hg', '.svn', '$RECYCLE.BIN', 'System Volume Information', '$Recycle.Bin', 'Recovery', 'Config.Msi', '.Trash', '.Trashes', '.Spotlight-V100', '.fseventsd', 'lost+found', 'proc', 'sys', 'dev', '_turbo-quarantine']);
+const SKIP_DIR_NAMES = new Set(['.git', '.hg', '.svn', '$RECYCLE.BIN', 'System Volume Information', '$Recycle.Bin', 'Recovery', 'Config.Msi', '.Trash', '.Trashes', '.Spotlight-V100', '.fseventsd', 'lost+found', '_turbo-quarantine']);
+const FS_ROOT_ONLY_SKIP = new Set(['proc', 'sys', 'dev', 'run']); // kernel pseudo-filesystems: skipped only directly under / (a ~/dev folder is user data)
+// A folder holding one of these is a project: its files are never duplicates of each other or of another project's, and its 0-byte files are placeholders, not clutter
+const PROJECT_MARKERS = ['.git', 'package.json', 'pyproject.toml', 'setup.py', 'setup.cfg', 'requirements.txt', 'Cargo.toml', 'go.mod', 'pom.xml', 'build.gradle', 'composer.json', 'Gemfile', 'CMakeLists.txt', 'Makefile', 'CLAUDE.md', '.sln', '.csproj', 'mix.exs', 'Package.swift'];
+// 0-byte files that are load-bearing by name or type (module markers, keep files, empty configs and stubs)
+const PLACEHOLDER_NAME_RE = /^(__init__\.py|__init__\.pyi|py\.typed|\.gitkeep|\.keep|\.gitignore|\.nojekyll|\.npmignore|\.hgkeep|\.placeholder|\.htaccess|CNAME|Procfile|\.env(\..*)?|\..+)$/i;
+const CODE_EXT_RE = /\.(py|pyi|js|mjs|cjs|ts|tsx|jsx|json|yml|yaml|toml|ini|cfg|conf|lock|go|rs|java|c|h|cpp|hpp|cc|cs|rb|php|sql|sh|ps1|psm1|bat|cmd|html|htm|css|scss|xml|gradle|properties)$/i;
 const SYSTEM_DIR_RE = /^(Windows|Program Files|Program Files \(x86\)|ProgramData|PerfLogs|Library|System|private|usr|bin|sbin|lib|lib64|etc|var|boot|opt|snap|run)$/i;
 const HEAVY_DIR_RE = /^(node_modules|\.venv|venv|__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.tox|\.gradle|\.nuxt|\.next|\.turbo|\.parcel-cache|\.cache|target|Pods|DerivedData|bower_components|\.pnpm-store)$/;
 const JUNK_NAME_RE = /^(Thumbs\.db|ehthumbs\.db|\.DS_Store|desktop\.ini|\._.*)$/i;
@@ -83,21 +92,41 @@ function globToRe(glob) {
 
 // ---------------------------------------------------------------------------
 // scanning
+/** Resolve, deduplicate and drop nested roots: scanning ~ and ~/Downloads together must not list a file twice (it would pair with itself as a "duplicate"). */
+function normalizeRoots(roots, log) {
+  const out = [];
+  for (const r0 of roots) {
+    let r = path.resolve(r0);
+    try { r = fs.realpathSync.native(r); } catch { /* keep as typed */ }
+    const key = process.platform === 'win32' ? r.toLowerCase() : r;
+    const within = (a, b) => a === b || a.startsWith(b.endsWith(path.sep) ? b : b + path.sep);
+    const covered = out.find((o) => within(key, o.key));
+    if (covered) { if (log) log(`  note: ${r0} is inside ${covered.abs}; scanning it once`); continue; }
+    for (let i = out.length - 1; i >= 0; i--) if (within(out[i].key, key)) { if (log) log(`  note: ${out[i].abs} is inside ${r0}; scanning it once`); out.splice(i, 1); }
+    out.push({ abs: r, key });
+  }
+  return out.map((o) => o.abs);
+}
+
 function scan(roots, opts, log) {
-  const files = [];          // { abs, size, mtimeMs, name, root }
+  const files = [];          // { abs, size, mtimeMs, name, root, project? }
   const emptyDirs = [];      // abs
   const heavy = [];          // { abs, size, files, mtimeMs }
+  const projects = [];       // abs of every project folder seen
   const excludes = opts.exclude.map(globToRe);
+  const seen = new Set();
   const t0 = Date.now();
   let visitedDirs = 0, truncated = false, lastReport = 0;
   const now = Date.now();
 
-  function walk(dir, root, depth) {
+  function walk(dir, root, depth, project) {
     if (files.length >= opts.maxFiles) { truncated = true; return { empty: false, size: 0, count: 0, newest: 0 }; }
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return { empty: false, size: 0, count: 0, newest: 0 }; }
     visitedDirs++;
     if (!opts.quiet && Date.now() - lastReport > 2000) { lastReport = Date.now(); log(`  scanning… ${files.length.toLocaleString('en-US')} files, ${visitedDirs.toLocaleString('en-US')} folders, ${Math.round((Date.now() - t0) / 1000)}s`); }
+    if (!project && entries.some((e) => PROJECT_MARKERS.some((m) => m.startsWith('.') && m.length > 4 && !m.startsWith('.git') ? e.name.toLowerCase().endsWith(m) : e.name === m))) { project = dir; projects.push(dir); }
+    const isFsRoot = path.parse(dir).root === dir;
     let size = 0, count = 0, newest = 0, hasAnything = false;
     for (const e of entries) {
       const abs = path.join(dir, e.name);
@@ -105,7 +134,7 @@ function scan(roots, opts, log) {
       if (e.isSymbolicLink()) { hasAnything = true; continue; }
       if (e.isDirectory()) {
         // skipped, system and heavy folders count as content; a folder holding only empty folders is itself empty
-        if (SKIP_DIR_NAMES.has(e.name)) { hasAnything = true; continue; }
+        if (SKIP_DIR_NAMES.has(e.name) || (isFsRoot && FS_ROOT_ONLY_SKIP.has(e.name))) { hasAnything = true; continue; }
         if (!opts.all && depth <= 1 && SYSTEM_DIR_RE.test(e.name)) { hasAnything = true; continue; }
         if (HEAVY_DIR_RE.test(e.name)) {
           hasAnything = true;
@@ -113,8 +142,8 @@ function scan(roots, opts, log) {
           heavy.push({ abs, size: h.size, files: h.count, mtimeMs: h.newest });
           continue; // never index inside: full of legitimate duplicates and not user data
         }
-        const sub = walk(abs, root, depth + 1);
-        if (sub.empty) emptyDirs.push(abs); else hasAnything = true;
+        const sub = walk(abs, root, depth + 1, project);
+        if (sub.empty) { if (!project || opts.includeProjects) emptyDirs.push(abs); } else hasAnything = true;
         size += sub.size; count += sub.count; newest = Math.max(newest, sub.newest);
         continue;
       }
@@ -122,7 +151,10 @@ function scan(roots, opts, log) {
       let st;
       try { st = fs.statSync(abs); } catch { continue; }
       hasAnything = true;
-      files.push({ abs, size: st.size, mtimeMs: st.mtimeMs, name: e.name, root });
+      const key = process.platform === 'win32' ? abs.toLowerCase() : abs;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      files.push({ abs, size: st.size, mtimeMs: st.mtimeMs, name: e.name, root, project: project || null });
       size += st.size; count++; newest = Math.max(newest, st.mtimeMs);
       if (files.length >= opts.maxFiles) { truncated = true; break; }
     }
@@ -143,11 +175,11 @@ function scan(roots, opts, log) {
   }
 
   for (const root of roots) {
-    const r = walk(root, root, 0);
+    const r = walk(root, root, 0, null);
     if (r.empty) emptyDirs.push(root);
   }
   void now;
-  return { files, emptyDirs, heavy, truncated, visitedDirs, elapsedMs: Date.now() - t0 };
+  return { files, emptyDirs, heavy, projects, truncated, visitedDirs, elapsedMs: Date.now() - t0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -173,8 +205,9 @@ function hashFull(abs) {
 }
 
 function keepScore(f) {
-  // lower is better: an original is not named like a copy, sits in a shorter path, is older
+  // lower is better: a file inside a project is kept over a loose copy; an original is not named like a copy, sits in a shorter path, is older
   let s = 0;
+  if (f.project) s -= 1000;
   if (COPY_NAME_RE.test(f.name)) s += 100;
   if (/[\\/](Downloads|Desktop|tmp|temp)[\\/]/i.test(f.abs)) s += 10;
   s += f.abs.split(/[\\/]/).length;
@@ -186,7 +219,7 @@ function findDuplicates(files, opts, log) {
   const bySize = new Map();
   for (const f of files) if (f.size >= opts.minSize) { const g = bySize.get(f.size); if (g) g.push(f); else bySize.set(f.size, [f]); }
   const groups = [];
-  let hashed = 0, hashedBytes = 0;
+  let hashed = 0, hashedBytes = 0, protectedGroups = 0;
   for (const [, g] of bySize) {
     if (g.length < 2) continue;
     const byHead = new Map();
@@ -205,12 +238,16 @@ function findDuplicates(files, opts, log) {
       for (const [, fg] of byFull) {
         if (fg.length < 2) continue;
         fg.sort((a, b) => keepScore(a) - keepScore(b));
-        groups.push({ size: fg[0].size, keep: fg[0].abs, extra: fg.slice(1).map((f) => f.abs), reclaim: fg[0].size * (fg.length - 1) });
+        // a copy that lives inside a project folder is part of that project (its own jquery.min.js, its own assets): never an "extra"
+        const extra = fg.slice(1).filter((f) => opts.includeProjects || !f.project);
+        if (!extra.length) { protectedGroups++; continue; }
+        groups.push({ size: fg[0].size, keep: fg[0].abs, extra: extra.map((f) => f.abs), reclaim: fg[0].size * extra.length });
       }
     }
   }
   groups.sort((a, b) => b.reclaim - a.reclaim);
-  if (!opts.quiet) log(`  hashed ${hashed.toLocaleString('en-US')} candidate files (${human(hashedBytes)})`);
+  groups.protectedGroups = protectedGroups;
+  if (!opts.quiet) log(`  hashed ${hashed.toLocaleString('en-US')} candidate files (${human(hashedBytes)})${protectedGroups ? `; ${protectedGroups} identical-file group(s) inside project folders left alone` : ''}`);
   return groups;
 }
 
@@ -268,18 +305,27 @@ function findAiLeftovers(opts, roots) {
     try { for (const f of fs.readdirSync(d)) { const p = path.join(d, f); try { const s = fs.statSync(p); if (s.isFile() && s.mtimeMs < cutoff) { old++; oldBytes += s.size; } } catch { /* ignore */ } } } catch { /* ignore */ }
     if (old) out.push({ abs: d, size: oldBytes, why: `${old} log/cache files older than ${opts.olderThan} days`, filesOnly: true, cutoff });
   }
-  // duplicate skills: same-named skill folders with identical content under skills/ and plugins
+  // duplicate skills: a personal skill under ~/.claude/skills that is byte-identical to one a plugin already provides.
+  // Only the personal copy is ever a candidate: ~/.claude/plugins is Claude Code's own storage (cache + marketplace
+  // checkouts legitimately hold the same skill twice) and is never touched.
+  const personal = path.join(claudeDir, 'skills');
   const skillDirs = [];
-  for (const base of [path.join(claudeDir, 'skills'), path.join(claudeDir, 'plugins')]) {
+  for (const base of [personal, path.join(claudeDir, 'plugins')]) {
     try { walkSkills(base, skillDirs, 0); } catch { /* ignore */ }
   }
+  const isPersonal = (d) => d === personal || d.startsWith(personal + path.sep);
   const byName = new Map();
   for (const d of skillDirs) { const l = byName.get(path.basename(d)); if (l) l.push(d); else byName.set(path.basename(d), [d]); }
   for (const [name, dirs] of byName) {
     if (dirs.length < 2) continue;
     const sigs = new Map();
     for (const d of dirs) { const sig = dirSignature(d); const l = sigs.get(sig); if (l) l.push(d); else sigs.set(sig, [d]); }
-    for (const [, same] of sigs) if (same.length > 1) out.push({ abs: same[1], size: dirSize(same[1]), why: `skill "${name}" is byte-identical to ${same[0]}`, extra: same.slice(2) });
+    for (const [, same] of sigs) {
+      if (same.length < 2) continue;
+      const keep = same.find((d) => !isPersonal(d)) || same[0];
+      const candidates = same.filter((d) => d !== keep && isPersonal(d));
+      if (candidates.length) out.push({ abs: candidates[0], size: dirSize(candidates[0]), why: `skill "${name}" is byte-identical to ${keep}`, extra: candidates.slice(1) });
+    }
   }
   // the roots themselves may hold stray AI exports: huge single JSON/JSONL chat exports in Downloads are reported as heavy-ish
   void roots;
@@ -334,6 +380,13 @@ function human(n) {
   return `${(n / 1073741824).toFixed(2)}GB`;
 }
 
+function treeStats(dir) {
+  let files = 0, bytes = 0;
+  const rec = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) rec(p); else if (e.isFile()) { files++; bytes += fs.statSync(p).size; } } };
+  rec(dir);
+  return { files, bytes };
+}
+
 function moveInto(src, destRoot, root) {
   const rel = path.relative(root, src);
   const inside = rel && !rel.startsWith('..') && !path.isAbsolute(rel);
@@ -346,8 +399,9 @@ function moveInto(src, destRoot, root) {
     // different volume: copy, verify, then remove the source (the data is already safe in quarantine)
     const st = fs.statSync(src);
     if (st.isDirectory()) fs.cpSync(src, final, { recursive: true }); else fs.copyFileSync(src, final);
-    const back = fs.statSync(final);
-    if (!st.isDirectory() && back.size !== st.size) { fs.rmSync(final, { force: true }); throw new Error(`copy size mismatch for ${src}`); }
+    const a = st.isDirectory() ? treeStats(src) : { files: 1, bytes: st.size };
+    const b = st.isDirectory() ? treeStats(final) : { files: 1, bytes: fs.statSync(final).size };
+    if (a.files !== b.files || a.bytes !== b.bytes) { fs.rmSync(final, { recursive: true, force: true }); throw new Error(`copy verification failed for ${src} (${a.files} files/${a.bytes} bytes vs ${b.files}/${b.bytes}); source left in place`); }
     fs.rmSync(src, { recursive: true, force: true });
   }
   return final;
@@ -361,11 +415,19 @@ function apply(report, opts, log) {
   fs.mkdirSync(qRoot, { recursive: true });
   const manifest = { createdAt: new Date().toISOString(), roots: report.roots, moved: [], removedEmptyDirs: [], errors: [] };
   const manifestPath = path.join(qRoot, 'manifest.json');
+  const logPath = path.join(qRoot, 'moves.log'); // one JSON line per move, appended before the manifest is rewritten: --undo reads both
   const save = () => fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   const rootOf = (p) => report.roots.find((r) => p === r || p.startsWith(r + path.sep)) || report.roots[0];
+  const pluginStore = path.join(opts.claudeDir ? path.resolve(opts.claudeDir) : path.join(os.homedir(), '.claude'), 'plugins');
   const move = (src, category) => {
-    try { const dest = moveInto(src, qRoot, rootOf(src)); manifest.moved.push({ from: src, to: dest, category }); if (manifest.moved.length % 50 === 0) save(); }
-    catch (e) { manifest.errors.push({ path: src, error: String(e.message || e) }); }
+    if (src === pluginStore || src.startsWith(pluginStore + path.sep)) { manifest.errors.push({ path: src, error: 'refused: inside Claude Code plugin storage' }); return; }
+    try {
+      const dest = moveInto(src, qRoot, rootOf(src));
+      const entry = { from: src, to: dest, category };
+      manifest.moved.push(entry);
+      fs.appendFileSync(logPath, JSON.stringify(entry) + '\n');
+      if (manifest.moved.length <= 200 || manifest.moved.length % 25 === 0) save();
+    } catch (e) { manifest.errors.push({ path: src, error: String(e.message || e) }); }
   };
   save();
   if (cats.has('duplicates')) for (const g of report.duplicates) for (const extra of g.extra) move(extra, 'duplicates');
@@ -390,11 +452,25 @@ function apply(report, opts, log) {
 }
 
 function undo(qDir, log) {
-  const manifestPath = path.join(path.resolve(qDir), 'manifest.json');
+  const q = path.resolve(qDir);
+  const manifestPath = path.join(q, 'manifest.json');
   const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  m.moved = Array.isArray(m.moved) ? m.moved : [];
+  m.removedEmptyDirs = Array.isArray(m.removedEmptyDirs) ? m.removedEmptyDirs : [];
+  // moves.log may hold entries a crash kept out of manifest.json
+  try {
+    const known = new Set(m.moved.map((it) => it.to));
+    for (const line of fs.readFileSync(path.join(q, 'moves.log'), 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try { const it = JSON.parse(line); if (it && it.to && !known.has(it.to)) { m.moved.push(it); known.add(it.to); } } catch { /* ignore */ }
+    }
+  } catch { /* no log */ }
+  const inside = (p, base) => { const r = path.relative(base, p); return r !== '' && !r.startsWith('..') && !path.isAbsolute(r); };
   let restored = 0, skipped = 0;
   for (const d of [...m.removedEmptyDirs].sort((a, b) => a.length - b.length)) { try { fs.mkdirSync(d, { recursive: true }); restored++; } catch { skipped++; } }
   for (const it of m.moved.slice().reverse()) {
+    // only a file that sits in this quarantine folder may be moved, and only to a place outside it: a tampered manifest cannot turn --undo into an arbitrary move
+    if (typeof it.from !== 'string' || typeof it.to !== 'string' || !inside(path.resolve(it.to), q) || inside(path.resolve(it.from), q) || path.resolve(it.from) === q) { skipped++; log(`refused: ${it.to} -> ${it.from} is not a quarantine move`); continue; }
     if (fs.existsSync(it.from)) { skipped++; continue; }
     try { fs.mkdirSync(path.dirname(it.from), { recursive: true }); fs.renameSync(it.to, it.from); restored++; }
     catch (e) { try { fs.cpSync(it.to, it.from, { recursive: true }); fs.rmSync(it.to, { recursive: true, force: true }); restored++; } catch (e2) { skipped++; log(`could not restore ${it.from}: ${e2.message}`); void e; } }
@@ -407,8 +483,10 @@ function undo(qDir, log) {
 // ---------------------------------------------------------------------------
 // report
 function buildReport(roots, opts, log) {
+  roots = normalizeRoots(roots, opts.quiet ? null : log);
   const s = scan(roots, opts, log);
-  const emptyFiles = s.files.filter((f) => f.size === 0).map((f) => f.abs);
+  // a 0-byte file is clutter only when it is loose data: not a module marker / keep file / dotfile, not a code or config stub, not inside a project
+  const emptyFiles = s.files.filter((f) => f.size === 0 && !PLACEHOLDER_NAME_RE.test(f.name) && !CODE_EXT_RE.test(f.name) && (opts.includeProjects || !f.project)).map((f) => f.abs);
   const duplicates = findDuplicates(s.files, opts, log);
   const junk = findJunk(s.files, opts);
   const archives = findArchives(s.files);
@@ -423,13 +501,15 @@ function buildReport(roots, opts, log) {
     heavy: heavy.reduce((n, h) => n + h.size, 0),
     archives: archives.reduce((n, a) => n + a.size, 0),
   };
-  return { roots, scanned: { files: s.files.length, dirs: s.visitedDirs, bytes: totalBytes, ms: s.elapsedMs, truncated: s.truncated }, duplicates, emptyFiles, emptyDirs: s.emptyDirs, junk, ai, heavy, archives, reclaim };
+  const projects = { count: s.projects.length, files: s.files.filter((f) => f.project).length, protectedDuplicateGroups: duplicates.protectedGroups || 0, included: !!opts.includeProjects };
+  return { roots, scanned: { files: s.files.length, dirs: s.visitedDirs, bytes: totalBytes, ms: s.elapsedMs, truncated: s.truncated }, projects, duplicates, emptyFiles, emptyDirs: s.emptyDirs, junk, ai, heavy, archives, reclaim };
 }
 
 function printReport(r, opts) {
   const L = [];
   L.push(`Turbo tidy report for ${r.roots.join(', ')}`);
   L.push(`scanned ${r.scanned.files.toLocaleString('en-US')} files in ${r.scanned.dirs.toLocaleString('en-US')} folders (${human(r.scanned.bytes)}) in ${(r.scanned.ms / 1000).toFixed(1)}s${r.scanned.truncated ? ` — STOPPED at --max-files ${opts.maxFiles}; scan a subfolder or raise the limit` : ''}`);
+  if (r.projects && r.projects.count) L.push(`${r.projects.count} project folder(s) (${r.projects.files.toLocaleString('en-US')} files) ${r.projects.included ? 'included' : `treated as units: nothing inside them is a duplicate or an empty file${r.projects.protectedDuplicateGroups ? ` (${r.projects.protectedDuplicateGroups} identical-file groups left alone)` : ''}; pass --include-projects to include them`}`);
   L.push('');
   const lim = opts.limit;
   L.push(`DUPLICATES: ${r.duplicates.length} group(s), ${human(r.reclaim.duplicates)} in extra copies (the kept copy is listed first)`);
@@ -457,12 +537,14 @@ function main() {
   const opts = parseArgs(process.argv.slice(2));
   const log = (m) => { if (!opts.quiet) console.error(m); };
   if (opts.help || (!opts.roots.length && !opts.undo)) {
-    console.log('Usage: node tidy.js <root> [<root>...] [--json] [--apply [--only duplicates,empty,junk,ai,heavy]] [--min-size bytes] [--older-than days] [--exclude glob]... [--max-files n] [--limit n] [--claude-dir dir] [--include-heavy] [--all]\n       node tidy.js --undo <quarantine dir>');
+    console.log('Usage: node tidy.js <root> [<root>...] [--json] [--apply [--only duplicates,empty,junk,ai,heavy]] [--min-size bytes] [--older-than days] [--exclude glob]... [--max-files n] [--limit n] [--claude-dir dir] [--include-heavy] [--include-projects] [--all]\n       node tidy.js --undo <quarantine dir>');
     process.exit(opts.help ? 0 : 2);
   }
   if (opts.undo) { undo(opts.undo, (m) => console.log(m)); return; }
   const roots = opts.roots.map((r) => path.resolve(r));
   for (const r of roots) { let st; try { st = fs.statSync(r); } catch { console.error(`Not found: ${r}`); process.exit(2); } if (!st.isDirectory()) { console.error(`Not a directory: ${r}`); process.exit(2); } }
+  const pluginStore = path.join(opts.claudeDir ? path.resolve(opts.claudeDir) : path.join(os.homedir(), '.claude'), 'plugins');
+  for (const r of roots) if (r === pluginStore || r.startsWith(pluginStore + path.sep)) { console.error(`Refusing to tidy inside Claude Code plugin storage: ${r}`); process.exit(2); }
   const report = buildReport(roots, opts, log);
   if (opts.apply) {
     const res = apply(report, opts, (m) => console.log(m));
@@ -477,4 +559,4 @@ if (require.main === module) {
   try { main(); } catch (e) { console.error(`tidy failed: ${e && e.stack || e}`); process.exit(1); }
 }
 
-module.exports = { parseArgs, scan, findDuplicates, findJunk, findArchives, findAiLeftovers, buildReport, printReport, apply, undo, transcriptCwd, human };
+module.exports = { parseArgs, scan, normalizeRoots, findDuplicates, findJunk, findArchives, findAiLeftovers, buildReport, printReport, apply, undo, transcriptCwd, human };

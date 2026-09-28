@@ -77,6 +77,53 @@ function run(check, { PLUGIN, DATA }) {
   check('tidy: no arguments -> usage, exit 2; --help -> exit 0', h.status === 2 && /Usage/.test(h.stdout + h.stderr) && cli(['--help']).status === 0);
   const nope = cli([path.join(root, 'does-not-exist')]);
   check('tidy: missing root -> exit 2 with a message', nope.status === 2 && /Not found/.test(nope.stderr));
+
+  // ---- security review round ----
+  // 10. overlapping roots are scanned once, so a file never pairs with itself as a "duplicate"
+  const r2 = tidy.buildReport([root, path.join(root, 'docs'), root], { ...opts }, () => {});
+  check('tidy: overlapping roots (root + root/docs + root again) collapse to one scan with the same findings', r2.roots.length === 1 && r2.scanned.files === r.scanned.files && r2.duplicates.length === 1 && !r2.duplicates.some((g) => g.extra.includes(g.keep)), JSON.stringify([r2.roots, r2.scanned.files, r2.duplicates]));
+  check('tidy: normalizeRoots drops nested and repeated roots whichever order they come in', tidy.normalizeRoots([path.join(root, 'docs'), root, path.join(root, 'photos')]).length === 1 && tidy.normalizeRoots([root, path.join(DATA, 'tidy-claude')]).length === 2);
+  // 11. project folders are units: nothing inside them is a duplicate of another project's file or an empty file to remove
+  const root2 = path.join(DATA, 'tidy-root2');
+  fs.rmSync(root2, { recursive: true, force: true });
+  const W2 = (rel, content) => { const p = path.join(root2, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, content); return p; };
+  const jq = rnd(4096, 9);
+  W2('code/siteA/package.json', '{}'); W2('code/siteA/lib/jquery.min.js', jq);
+  W2('code/siteB/package.json', '{}'); W2('code/siteB/lib/jquery.min.js', jq);
+  W2('Downloads/jquery.min.js', jq); W2('Downloads/jquery (1).min.js', jq);
+  W2('code/pkg/pyproject.toml', '[project]'); W2('code/pkg/mypkg/__init__.py', ''); W2('code/pkg/mypkg/sub/__init__.py', ''); W2('code/pkg/.gitkeep', ''); fs.mkdirSync(path.join(root2, 'code', 'pkg', 'logs'), { recursive: true });
+  W2('notes/empty.txt', ''); W2('.env', ''); W2('stub.js', ''); W2('dev/x/notes.txt', 'kept'); fs.mkdirSync(path.join(root2, 'loose-empty'));
+  const p2 = tidy.buildReport([root2], { ...tidy.parseArgs([root2, '--claude-dir', claudeDir, '--quiet']) }, () => {});
+  check('tidy: three project folders detected; both sites keep their own jquery, only the loose Downloads copies are extras', p2.projects.count === 3 && p2.duplicates.length === 1 && /code[\\/]site[AB][\\/]lib[\\/]jquery\.min\.js$/.test(p2.duplicates[0].keep) && p2.duplicates[0].extra.length === 2 && p2.duplicates[0].extra.every((e) => /Downloads/.test(e)), JSON.stringify([p2.projects, p2.duplicates]));
+  check('tidy: __init__.py, .gitkeep, dotfiles and code stubs are never "empty files"; a loose 0-byte notes file is', p2.emptyFiles.length === 1 && /notes[\\/]empty\.txt$/.test(p2.emptyFiles[0]), JSON.stringify(p2.emptyFiles));
+  check('tidy: an empty folder inside a project (pkg/logs) is left alone; a loose one is reported', !p2.emptyDirs.some((d) => /logs$/.test(d)) && p2.emptyDirs.some((d) => /loose-empty$/.test(d)), JSON.stringify(p2.emptyDirs));
+  check('tidy: a folder named dev below the root is scanned (only /dev, /proc, /sys at a filesystem root are skipped)', p2.scanned.files === 14, String(p2.scanned.files));
+  check('tidy: the text report explains that project folders are units', /3 project folder\(s\)[^\n]*treated as units/.test(tidy.printReport(p2, opts)), tidy.printReport(p2, opts).split('\n')[2]);
+  const p3 = tidy.buildReport([root2], { ...tidy.parseArgs([root2, '--claude-dir', claudeDir, '--quiet', '--include-projects']) }, () => {});
+  check('tidy --include-projects: project files may be extras and project placeholders stay protected', p3.duplicates[0].extra.length === 3 && p3.emptyFiles.length === 1 && p3.projects.included, JSON.stringify([p3.duplicates, p3.emptyFiles]));
+  // 12. skills: only a personal copy under ~/.claude/skills is ever a candidate; plugin storage is never touched
+  for (const d of [path.join(claudeDir, 'plugins', 'cache', 'mk', 'plug', '1.0.0', 'skills', 'bar'), path.join(claudeDir, 'plugins', 'marketplaces', 'mk', 'plugins', 'plug', 'skills', 'bar')]) { fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'SKILL.md'), '---\nname: bar\ndescription: y\n---\nbody\n'); }
+  const ai2 = tidy.findAiLeftovers({ ...opts }, [root]);
+  check('tidy: the duplicated personal skill is the candidate (never the plugin copy); a cache+marketplace pair is not reported', ai2.some((a) => /skill "foo"/.test(a.why) && a.abs === path.join(claudeDir, 'skills', 'foo')) && !ai2.some((a) => /skill "bar"/.test(a.why)) && !ai2.some((a) => a.abs.startsWith(path.join(claudeDir, 'plugins'))), JSON.stringify(ai2.map((a) => a.abs)));
+  const refuse = cli([path.join(claudeDir, 'plugins'), '--claude-dir', claudeDir]);
+  check('tidy: refuses a root inside Claude Code plugin storage', refuse.status === 2 && /plugin storage/.test(refuse.stderr), refuse.stderr);
+  // 18/19. --undo trusts only moves that land inside the quarantine folder; every move is logged before the manifest is rewritten
+  const q2 = path.join(DATA, 'tidy-fake-quarantine');
+  fs.rmSync(q2, { recursive: true, force: true }); fs.mkdirSync(q2, { recursive: true });
+  const victim = path.join(DATA, 'tidy-victim.txt'); fs.writeFileSync(victim, 'victim');
+  fs.writeFileSync(path.join(q2, 'manifest.json'), JSON.stringify({ moved: [{ from: path.join(DATA, 'tidy-stolen.txt'), to: victim, category: 'junk' }], removedEmptyDirs: [] }));
+  const u2 = cli(['--undo', q2]);
+  check('tidy --undo: a manifest entry whose "to" is outside the quarantine folder is refused, the file stays put', u2.status === 0 && fs.existsSync(victim) && !fs.existsSync(path.join(DATA, 'tidy-stolen.txt')) && /refused/.test(u2.stdout), u2.stdout + u2.stderr);
+  const a2 = cli([root2, '--claude-dir', claudeDir, '--apply', '--only', 'duplicates,empty', '--quiet', '--json']);
+  let a2j = null; try { a2j = JSON.parse(a2.stdout.slice(a2.stdout.indexOf('{'))); } catch { /* */ }
+  const logLines = a2j ? fs.readFileSync(path.join(a2j.quarantine, 'moves.log'), 'utf8').trim().split('\n') : [];
+  check('tidy --apply: moves.log holds one line per move and the manifest is complete', a2j && a2j.manifest.moved.length === 3 && logLines.length === 3 && JSON.parse(logLines[0]).to === a2j.manifest.moved[0].to, a2.stdout.slice(0, 300) + a2.stderr);
+  if (a2j) {
+    // simulate a crash after the log write: drop the manifest's moved list and undo from the log alone
+    fs.writeFileSync(path.join(a2j.quarantine, 'manifest.json'), JSON.stringify({ ...a2j.manifest, moved: [] }));
+    const u3 = cli(['--undo', a2j.quarantine]);
+    check('tidy --undo: restores from moves.log when manifest.json lost the moves', u3.status === 0 && fs.existsSync(path.join(root2, 'Downloads', 'jquery.min.js')) && fs.existsSync(path.join(root2, 'notes', 'empty.txt')), u3.stdout + u3.stderr);
+  }
   void os;
 }
 

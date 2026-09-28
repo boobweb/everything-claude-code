@@ -90,10 +90,27 @@ async function testMCP() {
 
   r = await call(c, 'read_range', { path: 'index.html', start_line: 26, end_line: 28 });
   check('read_range folds blob lines', /folded 159,905 chars: base64 data URI \(audio\/mpeg\)/.test(r.text) && r.text.length < 2000, r.text.slice(0, 300));
-  r = await call(c, 'read_range', { path: 'index.html', start_line: 26, end_line: 26, fold: false });
-  check('read_range fold:false expands up to the output cap', r.text.length > 60000 && /output truncated/.test(r.text), String(r.text.length));
-  r = await call(c, 'read_range', { path: 'index.html', start_line: 26, end_line: 26, fold: false, max_chars: 200000 });
-  check('read_range fold:false with raised max_chars returns the whole line', r.text.length > 160000 && !/output truncated/.test(r.text), String(r.text.length));
+  r = await call(c, 'read_range', { path: 'index.html', start_line: 26, end_line: 26, fold: false, max_chars: 1e9 });
+  check('read_range fold:false still folds a line over 64 KB (the 160 KB blob) and says so; max_chars cannot lift the 200,000 cap', r.text.length < 3000 && /lines over 64 KB are always folded/.test(r.text) && /folded 159,905 chars/.test(r.text), String(r.text.length) + ' ' + r.text.slice(0, 200));
+  r = await call(c, 'read_range', { path: 'dist/bundle.min.js', start_line: 1, end_line: 1, fold: false, max_chars: 60000 });
+  check('read_range fold:false expands a 40,000-char line in full', r.text.length > 40000 && !/folded/.test(r.text) && !/output truncated/.test(r.text), String(r.text.length));
+  // symlink containment: a link inside the project that points outside must not open the outside file
+  const outsideDir = path.join(os.tmpdir(), `turbo-mcp-outside-${process.pid}`);
+  fs.mkdirSync(outsideDir, { recursive: true }); fs.writeFileSync(path.join(outsideDir, 'secret.env'), 'SECRET_TOKEN=abc123\n');
+  let linked = false;
+  try { fs.symlinkSync(outsideDir, path.join(FIX, 'src', 'linkout'), 'dir'); linked = true; } catch { /* no symlink privilege */ }
+  if (linked) {
+    r = await call(c, 'read_range', { path: 'src/linkout/secret.env' });
+    check('read_range through a symlink that leaves the project is refused', r.isError && /Outside the project/.test(r.text) && !/SECRET_TOKEN/.test(r.text), r.text);
+    r = await call(c, 'search', { pattern: 'SECRET_TOKEN', path: 'src/linkout' });
+    check('search rooted at an outward symlink is refused', r.isError && /Outside the project/.test(r.text) && !/abc123/.test(r.text), r.text);
+    r = await call(c, 'file_stats', { path: 'src/linkout/secret.env' });
+    check('file_stats through an outward symlink is refused', r.isError && /Outside the project/.test(r.text), r.text);
+    r = await call(c, 'read_range', { path: 'src/app.js', start_line: 1, end_line: 2 });
+    check('a real in-project file still reads after the symlink checks', !r.isError && /lines 1-2 of/.test(r.text), r.text);
+    fs.unlinkSync(path.join(FIX, 'src', 'linkout'));
+  } else console.log('  skip symlink containment tests (cannot create symlinks here)');
+  fs.rmSync(outsideDir, { recursive: true, force: true });
   r = await call(c, 'read_range', { path: 'src/app.js', start_line: 9999 });
   check('read_range past EOF -> error', r.isError && /past the end/.test(r.text), r.text);
   r = await call(c, 'read_range', { path: 'src/app.js', start_line: 10, end_line: 5 });
@@ -209,6 +226,14 @@ function testHooks() {
   check('pre-write placeholder check is linear (20k blank lines < 3s)', Date.now() - t0pw < 3000, String(Date.now() - t0pw));
   h = hook('hook-pre-write.js', { session_id: 'T', cwd: FIX, tool_name: 'Write', tool_input: { file_path: path.join(FIX, 'index.html'), content: big + '\n<!-- more -->\n' } });
   check('pre-write silent when size grows', h.stdout.trim() === '', h.stdout);
+  h = hook('hook-pre-write.js', { session_id: 'T', cwd: FIX, tool_name: 'Write', tool_input: { file_path: path.join(FIX, 'index.html'), content: ['not', 'a', 'string'] } });
+  check('pre-write treats non-string content as empty: a large file would be wiped, so it asks', h.json && h.json.hookSpecificOutput.permissionDecision === 'ask' && /100% smaller/.test(h.json.hookSpecificOutput.permissionDecisionReason), h.stdout);
+  h = hook('hook-pre-bash.js', { session_id: 'T', cwd: FIX, tool_name: 'Bash', tool_input: { command: 'echo "<html></html>" > index.html' } });
+  check('pre-bash asks before a shell redirect truncates a large file (the Write guard cannot see Bash)', h.json && h.json.hookSpecificOutput.permissionDecision === 'ask' && /replaces the whole file/.test(h.json.hookSpecificOutput.permissionDecisionReason), h.stdout);
+  h = hook('hook-pre-bash.js', { session_id: 'T', cwd: FIX, tool_name: 'Bash', tool_input: { command: "echo it\\'s; rm -rf ~" } });
+  check('pre-bash (Bash tool): an escaped quote does not hide the delete on the same line', h.json && h.json.hookSpecificOutput.permissionDecision === 'deny', h.stdout);
+  h = hook('hook-pre-bash.js', { session_id: 'T', cwd: FIX, tool_name: 'PowerShell', tool_input: { command: 'Get-ChildItem C:\\ -Recurse | ForEach-Object { Remove-Item $_.FullName -Recurse -Force }' } });
+  check('pre-bash (PowerShell tool): a ForEach-Object pipeline over C:\\ is denied', h.json && h.json.hookSpecificOutput.permissionDecision === 'deny', h.stdout);
   h = hook('hook-pre-write.js', { session_id: 'T', cwd: FIX, tool_name: 'Write', tool_input: { file_path: path.join(FIX, 'new-file.js'), content: 'x' } });
   check('pre-write silent for new files', h.stdout.trim() === '');
   h = hook('hook-pre-write.js', { session_id: 'T', cwd: FIX, tool_name: 'Write', tool_input: { file_path: path.join(FIX, 'src', 'app.js'), content: 'const a = 1;\n// ... rest of the file unchanged\n' } });

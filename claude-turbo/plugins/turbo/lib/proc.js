@@ -36,7 +36,22 @@ function which(names) {
 // hook process does not pay for the probes again (a PowerShell start alone costs 1-2 s on Windows).
 const PROBE_TTL_MS = 24 * 3600 * 1000;
 function probeFile() { return path.join(fsx.dataDir(), 'probes.json'); }
-function loadProbes() { try { const p = JSON.parse(fs.readFileSync(probeFile(), 'utf8')); return p && Date.now() - (p.ts || 0) < PROBE_TTL_MS && p.node === process.version ? p : {}; } catch { return {}; } }
+// A cached value is used only when it is one of the commands the probe itself could have produced:
+// the cache file lives in a data directory, and a data file must never become a command to run.
+const PY_CANDIDATES = process.platform === 'win32' ? [['py', ['-3']], ['python', []], ['python3', []]] : [['python3', []], ['python', []]];
+const validPython = (v) => v === null || (!!v && typeof v === 'object' && PY_CANDIDATES.some(([c, pre]) => c === v.cmd && JSON.stringify(pre) === JSON.stringify(v.pre)));
+const validPowershell = (v) => v === null || v === 'pwsh' || v === 'powershell';
+const validBash = (v) => v === null || v === 'bash' || (process.platform === 'win32' && typeof v === 'string' && path.isAbsolute(v) && /[\\/]bash\.exe$/i.test(v) && !/\\Windows\\(System32|Sysnative|SysWOW64)\\/i.test(v) && fs.existsSync(v));
+function loadProbes() {
+  try {
+    const p = JSON.parse(fs.readFileSync(probeFile(), 'utf8'));
+    if (!p || typeof p !== 'object' || Date.now() - (p.ts || 0) >= PROBE_TTL_MS || p.node !== process.version) return {};
+    if ('python' in p && !validPython(p.python)) delete p.python;
+    if ('powershell' in p && !validPowershell(p.powershell)) delete p.powershell;
+    if ('bash' in p && !validBash(p.bash)) delete p.bash;
+    return p;
+  } catch { return {}; }
+}
 function saveProbe(key, value) { try { const p = loadProbes(); p[key] = value; p.ts = p.ts || Date.now(); p.node = process.version; fs.writeFileSync(probeFile(), JSON.stringify(p)); } catch { /* ignore */ } }
 
 let pyCache;
@@ -44,9 +59,8 @@ function pythonCmd() {
   if (pyCache !== undefined) return pyCache;
   const cached = loadProbes();
   if (cached.python !== undefined) { pyCache = cached.python; return pyCache; }
-  const candidates = process.platform === 'win32' ? [['py', ['-3']], ['python', []], ['python3', []]] : [['python3', []], ['python', []]];
   pyCache = null;
-  for (const [cmd, pre] of candidates) {
+  for (const [cmd, pre] of PY_CANDIDATES) {
     const r = run(cmd, [...pre, '-c', 'import sys;print(sys.version_info[0])'], { timeout: 4000 });
     if (!r.error && r.status === 0 && r.stdout.trim().startsWith('3')) { pyCache = { cmd, pre }; break; }
   }

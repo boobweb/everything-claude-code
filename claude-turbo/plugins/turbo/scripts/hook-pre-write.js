@@ -22,15 +22,16 @@ io.main(async (input) => {
   const st = fsx.statSafe(file);
   if (!st || !st.isFile()) return 0; // creating a new file is fine
   const oldSize = st.size;
-  const content = typeof ti.content === 'string' ? ti.content : null;
-  const newSize = content != null ? Buffer.byteLength(content, 'utf8') : null;
+  // content is always a string from Claude Code; anything else (missing, array) would write nothing useful: size 0
+  const content = typeof ti.content === 'string' ? ti.content : '';
+  const newSize = Buffer.byteLength(content, 'utf8');
   // Linear-time: anchored per line, no nested optional whitespace groups.
-  const placeholder = content != null && /^[ \t]*(?:\/\/|#|<!--|\/\*)?[ \t]*(?:\.\.\.|…)[ \t]*(?:rest of|remaining|unchanged|same as before|existing code|other code|previous code)/im.test(content);
+  const placeholder = /^[ \t]*(?:\/\/|#|<!--|\/\*)?[ \t]*(?:\.\.\.|…)[ \t]*(?:rest of|remaining|unchanged|same as before|existing code|other code|previous code)/im.test(content);
 
   let reason = null;
   if (oldSize >= BIG) {
-    reason = `Turbo guard: Write would replace ${fsx.toPosix(file)} (${fsx.humanSize(oldSize)}) wholesale${newSize != null ? ` with ${fsx.humanSize(newSize)}` : ''}. Whole-file rewrites of large files lose content easily; the Edit tool (exact old/new strings) is the safe way to change it. Approve only if a full rewrite is really intended.`;
-  } else if (newSize != null && oldSize >= SHRINK_MIN && newSize < oldSize * SHRINK_RATIO) {
+    reason = `Turbo guard: Write would replace ${fsx.toPosix(file)} (${fsx.humanSize(oldSize)}) wholesale with ${fsx.humanSize(newSize)}. Whole-file rewrites of large files lose content easily; the Edit tool (exact old/new strings) is the safe way to change it. Approve only if a full rewrite is really intended.`;
+  } else if (oldSize >= SHRINK_MIN && newSize < oldSize * SHRINK_RATIO) {
     reason = `Turbo guard: Write would shrink ${fsx.toPosix(file)} from ${fsx.humanSize(oldSize)} to ${fsx.humanSize(newSize)} (${Math.round((1 - newSize / oldSize) * 100)}% smaller). That usually means content is missing. Approve if the shrink is intentional; otherwise use Edit for targeted changes.`;
   } else if (placeholder) {
     reason = `Turbo guard: the new content for ${fsx.toPosix(file)} contains a "... rest of ..." style placeholder, which would delete the real code it stands for. Write the full content or use Edit for the specific section.`;
