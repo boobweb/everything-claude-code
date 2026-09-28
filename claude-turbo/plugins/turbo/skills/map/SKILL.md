@@ -1,7 +1,7 @@
 ---
 name: map
 description: Orient in a codebase fast. Use at the start of work in an unfamiliar or large project, when asked "how does this project work", "where is X handled", or before planning a multi-file change. Produces a compact architecture brief from indexed symbols instead of reading files one by one.
-argument-hint: [focus area, e.g. "auth flow" or "src/engine"]
+argument-hint: '[focus area, e.g. "auth flow" or "src/engine"]'
 allowed-tools: mcp__plugin_turbo_code__repo_map, mcp__plugin_turbo_code__file_outline, mcp__plugin_turbo_code__find_symbol, mcp__plugin_turbo_code__read_range, mcp__plugin_turbo_code__search, mcp__plugin_turbo_code__syntax_check, mcp__plugin_turbo_code__file_stats, Read, Glob, Grep
 ---
 

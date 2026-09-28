@@ -1,7 +1,7 @@
 ---
 name: verify
 description: Run every cheap check the project offers and prove the current state is sound before declaring work done. Use after finishing a feature or fix, before a commit or deploy, or when asked "does it still work". Covers syntax of changed files, project test/lint/build scripts, and a browser smoke test for web apps.
-argument-hint: [scope: "changed" (default) | "all" | a path]
+argument-hint: '[scope: "changed" (default) | "all" | a path]'
 allowed-tools: mcp__plugin_turbo_code__syntax_check, mcp__plugin_turbo_code__search, mcp__plugin_turbo_code__file_outline, mcp__plugin_turbo_code__read_range, Read, Glob, Grep, Bash(git status *), PowerShell(git status *), Bash(git diff *), PowerShell(git diff *), Bash(git log *), PowerShell(git log *), Bash(git show *), PowerShell(git show *), Bash(git branch *), PowerShell(git branch *), Bash(node --check *), PowerShell(node --check *), Bash(npm test *), PowerShell(npm test *), Bash(npm run test *), PowerShell(npm run test *), Bash(npm run lint *), PowerShell(npm run lint *), Bash(npm run build *), PowerShell(npm run build *), Bash(npm run typecheck *), PowerShell(npm run typecheck *), Bash(pytest *), PowerShell(pytest *), Bash(python -m pytest *), PowerShell(python -m pytest *), Bash(go test *), PowerShell(go test *), Bash(go build *), PowerShell(go build *), Bash(cargo test *), PowerShell(cargo test *), Bash(dotnet test *), PowerShell(dotnet test *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" *)
 ---
 

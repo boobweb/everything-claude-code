@@ -13,6 +13,7 @@ const path = require('path');
 const fsx = require('../lib/fsx');
 const io = require('../lib/hookio');
 const options = require('../lib/options');
+const project = require('../lib/project');
 
 // Commands must appear in command position (start of a segment, or after sudo/then/do/exec/time/nohup),
 // so the same words inside an echo string or a commit message do not trigger the guard.
@@ -209,9 +210,11 @@ async function main(input) {
   if (r.decision === 'deny') {
     const reason = `Turbo guard blocked this command: ${r.why}. If this is truly required, the user must run it manually.`;
     io.emit({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } });
+    project.recordGuard(ctx.root, input.session_id, 'commandsDenied');
   } else if (level === 'strict') {
     const reason = `Turbo guard: ${r.why}. Confirm before running.`;
     io.emit({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: reason, additionalContext: `${reason} If the user declines, do not retry the same command; choose a narrower, in-project alternative.` } });
+    project.recordGuard(ctx.root, input.session_id, 'commandsAsked');
   }
   return 0;
 }

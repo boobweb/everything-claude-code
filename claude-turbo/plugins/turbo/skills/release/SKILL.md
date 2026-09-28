@@ -1,7 +1,7 @@
 ---
 name: release
 description: Pre-deploy / pre-commit checklist for any project (static sites, Netlify/Vercel, npm packages, scripts). Use when asked to ship, deploy, publish, tag or "make it ready", so nothing broken or half-finished goes out.
-argument-hint: [target, e.g. "netlify" or "v1.4"]
+argument-hint: '[target, e.g. "netlify" or "v1.4"]'
 allowed-tools: mcp__plugin_turbo_code__syntax_check, mcp__plugin_turbo_code__search, mcp__plugin_turbo_code__file_stats, Read, Glob, Grep, Bash(git status *), PowerShell(git status *), Bash(git diff *), PowerShell(git diff *), Bash(git log *), PowerShell(git log *), Bash(git show *), PowerShell(git show *), Bash(git branch *), PowerShell(git branch *), Bash(node --check *), PowerShell(node --check *), Bash(npm test *), PowerShell(npm test *), Bash(npm run test *), PowerShell(npm run test *), Bash(npm run lint *), PowerShell(npm run lint *), Bash(npm run build *), PowerShell(npm run build *), Bash(npm run typecheck *), PowerShell(npm run typecheck *), Bash(pytest *), PowerShell(pytest *), Bash(python -m pytest *), PowerShell(python -m pytest *), Bash(go test *), PowerShell(go test *), Bash(go build *), PowerShell(go build *), Bash(cargo test *), PowerShell(cargo test *), Bash(dotnet test *), PowerShell(dotnet test *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" *)
 ---
 

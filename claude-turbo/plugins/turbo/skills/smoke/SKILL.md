@@ -1,7 +1,7 @@
 ---
 name: smoke
 description: Headless Chromium boot test for a web app (static folder or running URL). Use to catch loading hangs, boot-time exceptions, console errors, missing assets and layout overflow after changes to HTML/JS/CSS, or whenever a user says the page "doesn't load" or "nothing happens".
-argument-hint: [folder or URL] [--wait-hidden <selector>] [--click <selector>] [--mobile]
+argument-hint: '[folder or URL] [--wait-hidden <selector>] [--click <selector>] [--mobile]'
 allowed-tools: Read, Glob, mcp__plugin_turbo_code__search, mcp__plugin_turbo_code__file_outline, Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" *)
 ---
 

@@ -235,6 +235,22 @@ function testHooks() {
   const st2 = JSON.parse(fs.readFileSync(path.join(DATA, 'sessions', 'T2.json'), 'utf8'));
   check('post-edit records verifiedAt in session state', st2.edited[path.join(FIX, 'src', 'app.js')].verifiedAt > 0);
   check('session state file written under CLAUDE_PLUGIN_DATA', fs.existsSync(path.join(DATA, 'sessions', 'T.json')));
+
+  // continuity: the next session's brief reports what session T left behind and what the hooks caught
+  const recs = fs.readdirSync(path.join(DATA, 'projects')).filter((f) => f.endsWith('.json'));
+  check('project record written under CLAUDE_PLUGIN_DATA/projects', recs.length === 1, recs.join(','));
+  const rec = JSON.parse(fs.readFileSync(path.join(DATA, 'projects', recs[0]), 'utf8'));
+  check('project record counts broken edits, guarded commands, held writes and stop blocks', rec.stats.brokenEditsCaught >= 2 && rec.stats.commandsDenied >= 15 && rec.stats.commandsAsked >= 15 && rec.stats.writesAsked >= 2 && rec.stats.stopBlocks >= 1 && rec.stats.sessions >= 1, JSON.stringify(rec.stats));
+  check('project record: session T lists edited files with the last known state and an unclean end', rec.sessions.T && rec.sessions.T.edited['broken/bad.js'] && rec.sessions.T.edited['broken/bad.js'].ok === false && rec.sessions.T.clean === false && rec.sessions.T.broken.includes('broken/bad.js'), JSON.stringify(rec.sessions.T));
+  h = hook('hook-session-start.js', { session_id: 'NEXT', cwd: FIX, source: 'startup' });
+  const next = h.json && h.json.hookSpecificOutput.additionalContext;
+  // the most recent session with edits is T2 (one clean post-edit, no Stop); T's unclean end is covered by the record assertions above and by the describe() unit tests
+  check('next session brief: most recent session, its files, how it ended, and the counters', next && /Last session \(\d+s ago\) edited src\/app\.js; no Stop check ran \(session closed early\), last checks were clean\. Turbo in this project \(\d+ sessions?\): \d+ broken edits caught, \d+ commands guarded, \d+ risky writes held\./.test(next), next);
+  check('next session brief stays under 1600 chars with continuity and handoff', next && next.length < 1600, next && String(next.length));
+  const stats = spawnSync(process.execPath, [path.join(SCRIPTS, 'stats.js'), '--root', FIX, '--data', DATA], { encoding: 'utf8', timeout: 20000 });
+  check('stats.js prints the record (sessions, counters, per-session lines)', stats.status === 0 && /sessions: \d+; broken edits caught: \d+/.test(stats.stdout) && /broken: broken\/bad\.js/.test(stats.stdout) && /T\s+\d+ files? edited/.test(stats.stdout), stats.stdout + stats.stderr);
+  const statsJson = spawnSync(process.execPath, [path.join(SCRIPTS, 'stats.js'), '--root', FIX, '--data', DATA, '--json'], { encoding: 'utf8', timeout: 20000 });
+  check('stats.js --json emits the raw record', statsJson.status === 0 && JSON.parse(statsJson.stdout).stats.sessions >= 1, statsJson.stdout.slice(0, 200));
 }
 
 function testSmoke() {
@@ -272,10 +288,15 @@ function testStatic() {
   const hooks = JSON.parse(fs.readFileSync(path.join(PLUGIN, 'hooks', 'hooks.json'), 'utf8'));
   const allHandlers = Object.values(hooks.hooks).flat().flatMap((g) => g.hooks);
   check('hooks.json: every handler is exec-form node with an existing script', allHandlers.every((h) => h.type === 'command' && h.command === 'node' && Array.isArray(h.args) && fs.existsSync(h.args[0].replace('${CLAUDE_PLUGIN_ROOT}', PLUGIN))), JSON.stringify(allHandlers));
+  // Frontmatter: tolerate CRLF checkouts (Windows runners with autocrlf) and reject values that a strict
+  // YAML parser would misread: a plain scalar starting with [ { & * ! | > % @ ` or containing ": " / " #".
+  const fmOf = (t) => { const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(t); return m ? m[1].split(/\r?\n/) : null; };
+  const badYaml = (lines) => lines.filter((l) => { const m = /^([\w-]+):\s*(.*)$/.exec(l); if (!m) return !/^\s/.test(l) && l.trim() !== ''; const v = m[2]; if (!v) return false; if (/^["']/.test(v)) return !/^"(?:[^"\\]|\\.)*"$|^'(?:[^']|'')*'$/.test(v); return /^[[{&*!|>%@`]/.test(v) || /:\s|\s#/.test(v); });
   const skills = fs.readdirSync(path.join(PLUGIN, 'skills'));
-  check('10 skills with frontmatter name + description', skills.length === 10 && skills.every((s) => { const t = fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8'); return /^---\nname: [a-z-]+\ndescription: .+/m.test(t); }), skills.join(','));
+  check('10 skills with frontmatter name + description', skills.length === 10 && skills.every((s) => { const fm = fmOf(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8')); return fm && fm.some((l) => /^name: [a-z-]+$/.test(l)) && fm.some((l) => /^description: .+/.test(l)); }), skills.join(','));
+  check('skill frontmatter is strict-YAML safe (quoted hints, no stray ": " or " #")', skills.every((s) => { const fm = fmOf(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8')); return fm && badYaml(fm).length === 0; }), skills.map((s) => { const fm = fmOf(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8')); return `${s}: ${(fm ? badYaml(fm) : ['no frontmatter']).join(' | ')}`; }).filter((x) => !/: $/.test(x)).join('\n'));
   const agents = fs.readdirSync(path.join(PLUGIN, 'agents'));
-  check('3 agents with frontmatter name + description + tools', agents.length === 3 && agents.every((a) => { const t = fs.readFileSync(path.join(PLUGIN, 'agents', a), 'utf8'); return /^---\nname: [a-z-]+\ndescription: .+\ntools: .+/m.test(t); }), agents.join(','));
+  check('3 agents with frontmatter name + description + tools', agents.length === 3 && agents.every((a) => { const fm = fmOf(fs.readFileSync(path.join(PLUGIN, 'agents', a), 'utf8')); return fm && fm.some((l) => /^name: [a-z-]+$/.test(l)) && fm.some((l) => /^description: .+/.test(l)) && fm.some((l) => /^tools: .+/.test(l)) && badYaml(fm).length === 0; }), agents.join(','));
   const mcp = JSON.parse(fs.readFileSync(path.join(PLUGIN, '.mcp.json'), 'utf8'));
   check('.mcp.json declares node server with ${CLAUDE_PLUGIN_ROOT}', mcp.mcpServers.code.command === 'node' && /\$\{CLAUDE_PLUGIN_ROOT\}\/mcp\/server\.js/.test(mcp.mcpServers.code.args[0]));
 }

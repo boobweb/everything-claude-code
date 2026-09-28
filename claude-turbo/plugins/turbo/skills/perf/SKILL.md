@@ -1,7 +1,7 @@
 ---
 name: perf
 description: Measure-first performance work for apps and scripts (slow load, slow startup, janky UI, huge files, slow tests). Use when asked to make something faster or when load/boot time is a complaint. Produces ranked, evidence-backed fixes instead of guesses.
-argument-hint: [what is slow]
+argument-hint: '[what is slow]'
 allowed-tools: mcp__plugin_turbo_code__file_stats, mcp__plugin_turbo_code__file_outline, mcp__plugin_turbo_code__search, mcp__plugin_turbo_code__find_symbol, mcp__plugin_turbo_code__read_range, mcp__plugin_turbo_code__repo_map, Read, Glob, Grep, Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" *)
 ---
 

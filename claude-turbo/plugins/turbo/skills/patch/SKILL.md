@@ -1,7 +1,7 @@
 ---
 name: patch
 description: Make a surgical, verified change in a large or high-stakes file (single-file apps, giant HTML/JS, data banks, config). Use whenever an edit targets a file over ~100KB, a file with embedded base64/minified blobs, or structured data where a shifted index or stray comma is costly. Produces a Find / Replace / Why / Test report.
-argument-hint: [file] [what to change]
+argument-hint: '[file] [what to change]'
 allowed-tools: mcp__plugin_turbo_code__repo_map, mcp__plugin_turbo_code__file_outline, mcp__plugin_turbo_code__find_symbol, mcp__plugin_turbo_code__read_range, mcp__plugin_turbo_code__search, mcp__plugin_turbo_code__syntax_check, mcp__plugin_turbo_code__file_stats, Read, Edit, Grep, Glob
 ---
 

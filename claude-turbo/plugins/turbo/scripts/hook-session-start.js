@@ -13,6 +13,7 @@ const stack = require('../lib/stack');
 const { blobMap } = require('../lib/fold');
 const io = require('../lib/hookio');
 const options = require('../lib/options');
+const project = require('../lib/project');
 
 const PLUGIN_VERSION = (() => { try { return require('../.claude-plugin/plugin.json').version; } catch { return '?'; } })();
 const MAX_CHARS = 4000;
@@ -25,6 +26,8 @@ io.main(async (input) => {
 
   // Open the session state now so the Stop hook knows when this session began.
   if (input.session_id) { const st = io.loadSession(input.session_id); io.saveSession(input.session_id, st); }
+  // Count the session in the project record only once (resume/clear/compact re-run this hook with the same id).
+  const rec = input.session_id ? project.startSession(root, input.session_id) : project.load(root);
   if (!options.brief()) { io.log('brief disabled by option'); return 0; }
 
   const lines = [];
@@ -53,6 +56,12 @@ io.main(async (input) => {
       lines.push(`Large files (use file_outline/read_range, never Read whole): ${descs.join('; ')}.`);
     }
   } catch { /* best effort */ }
+
+  // Continuity: what the previous session in this project edited and how it ended; what Turbo has caught here
+  try {
+    const cont = project.describe(rec, input.session_id);
+    if (cont) lines.push(cont);
+  } catch { /* ignore */ }
 
   // Handoff note from a previous session
   try {

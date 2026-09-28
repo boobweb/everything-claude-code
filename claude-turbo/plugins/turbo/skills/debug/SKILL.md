@@ -1,7 +1,7 @@
 ---
 name: debug
 description: Systematic triage for bugs, loading hangs, "nothing happens on click", broken state transitions, and silent failures. Use when the user reports a symptom rather than a known cause, or when a change made something stop working. Enforces evidence before edits.
-argument-hint: [symptom, e.g. "cards unclickable after load"]
+argument-hint: '[symptom, e.g. "cards unclickable after load"]'
 allowed-tools: mcp__plugin_turbo_code__repo_map, mcp__plugin_turbo_code__file_outline, mcp__plugin_turbo_code__find_symbol, mcp__plugin_turbo_code__read_range, mcp__plugin_turbo_code__search, mcp__plugin_turbo_code__syntax_check, mcp__plugin_turbo_code__file_stats, Read, Grep, Glob, Bash(git status *), PowerShell(git status *), Bash(git diff *), PowerShell(git diff *), Bash(git log *), PowerShell(git log *), Bash(git show *), PowerShell(git show *), Bash(git branch *), PowerShell(git branch *), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/smoke.js" *)
 ---
 

@@ -7,6 +7,7 @@
 const fsx = require('../lib/fsx');
 const check = require('../lib/check');
 const io = require('../lib/hookio');
+const project = require('../lib/project');
 
 io.main(async (input) => {
   const file = io.editedPath(input);
@@ -20,6 +21,7 @@ io.main(async (input) => {
   state.edited = state.edited || {};
   state.edited[file] = { ok: res.ok, skipped: res.skipped || null, errors: res.errors.length, ts: Date.now(), verifiedAt: Date.now(), tool: input.tool_name };
   io.saveSession(sid, state);
+  project.recordEdit(root, sid, file, res.ok);
 
   if (res.ok) {
     io.log(`ok ${file} (${res.checker}, ${res.ms}ms)`);

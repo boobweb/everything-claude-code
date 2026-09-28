@@ -1,7 +1,7 @@
 ---
 name: handoff
 description: Write the next-session handoff note so work continues without re-discovery. Use at the end of a work session, before context compaction on a long task, when stopping mid-way through something, or when the user says "save your progress" / "where were we".
-argument-hint: [optional extra notes]
+argument-hint: '[optional extra notes]'
 allowed-tools: Read, Glob, Bash(git status *), PowerShell(git status *), Bash(git log *), PowerShell(git log *), Bash(git diff --stat *), PowerShell(git diff --stat *)
 ---
 

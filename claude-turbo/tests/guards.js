@@ -71,6 +71,27 @@ function run(check, { PLUGIN, FIX }) {
   check('makeGlobMatcher: *.js, src/**, braces', fsx.makeGlobMatcher('*.js')('a/b.js') && !fsx.makeGlobMatcher('*.js')('a/b.ts') && fsx.makeGlobMatcher('src/**')('src/x/y.js') && !fsx.makeGlobMatcher('src/**')('lib/x.js') && fsx.makeGlobMatcher('*.{js,ts}')('q.ts'));
   check('findProjectRoot: walks up to the fixture git root', fsx.findProjectRoot(path.join(FIX, 'src')) === FIX, fsx.findProjectRoot(path.join(FIX, 'src')));
 
+  // ---- project continuity record (lib/project.js) ----
+  const project = require(path.join(PLUGIN, 'lib', 'project'));
+  const tmpRoot = path.join(os.tmpdir(), `turbo-proj-${process.pid}`);
+  check('project: key is stable and separator/trailing-slash insensitive', project.keyFor(tmpRoot) === project.keyFor(tmpRoot + path.sep) && project.keyFor(tmpRoot).length === 16 && (WIN ? project.keyFor(tmpRoot) === project.keyFor(tmpRoot.toUpperCase()) : project.keyFor(tmpRoot) !== project.keyFor(tmpRoot.toUpperCase())));
+  check('project: empty record has zeroed stats and no sessions', JSON.stringify(project.load(tmpRoot).stats) === JSON.stringify({ sessions: 0, brokenEditsCaught: 0, commandsDenied: 0, commandsAsked: 0, writesAsked: 0, stopBlocks: 0 }) && Object.keys(project.load(tmpRoot).sessions).length === 0 && project.describe(project.load(tmpRoot), 'x') === '');
+  project.startSession(tmpRoot, 'A'); project.startSession(tmpRoot, 'A');
+  project.recordEdit(tmpRoot, 'A', path.join(tmpRoot, 'src', 'a.js'), true);
+  project.recordEdit(tmpRoot, 'A', path.join(tmpRoot, 'src', 'b.js'), false);
+  project.recordGuard(tmpRoot, 'A', 'commandsDenied'); project.recordGuard(tmpRoot, 'A', 'nonsense');
+  let rec = project.recordStop(tmpRoot, 'A', ['src/b.js']);
+  check('project: a session is counted once, edits keep the last known state, guards and stops are counted', rec.stats.sessions === 1 && rec.stats.brokenEditsCaught === 1 && rec.stats.commandsDenied === 1 && rec.stats.stopBlocks === 1 && rec.sessions.A.edited['src/a.js'].ok === true && rec.sessions.A.edited['src/b.js'].ok === false && rec.sessions.A.clean === false, JSON.stringify(rec));
+  check('project: describe() for the next session names the last one, its files and how it ended', /^Last session \(\d+s ago\) edited src\/a\.js, src\/b\.js; ended with 1 broken file: src\/b\.js\. Turbo in this project \(1 session\): 1 broken edit caught, 1 command guarded\.$/.test(project.describe(rec, 'B')), project.describe(rec, 'B'));
+  check('project: describe() ignores the current session and sessions without edits', project.describe(rec, 'A') === 'Turbo in this project (1 session): 1 broken edit caught, 1 command guarded.' && (project.startSession(tmpRoot, 'C'), /^Last session[^]*src\/a\.js/.test(project.describe(project.load(tmpRoot), 'C'))));
+  rec = project.recordStop(tmpRoot, 'A', []);
+  check('project: a later clean stop flips the session to clean', rec.sessions.A.clean === true && /ended clean/.test(project.describe(rec, 'Z')), project.describe(rec, 'Z'));
+  for (let i = 0; i < 10; i++) project.recordEdit(tmpRoot, `S${i}`, path.join(tmpRoot, `f${i}.js`), true);
+  check('project: only the 6 most recent sessions are kept', Object.keys(project.load(tmpRoot).sessions).length === 6 && !project.load(tmpRoot).sessions.A, Object.keys(project.load(tmpRoot).sessions).join(','));
+  require('fs').writeFileSync(project.fileFor(tmpRoot), '{not json');
+  check('project: a corrupt record is treated as empty, never thrown', project.load(tmpRoot).stats.sessions === 0 && project.startSession(tmpRoot, 'Q').stats.sessions === 1);
+  try { require('fs').unlinkSync(project.fileFor(tmpRoot)); } catch { /* ignore */ }
+
   // ---- user options (CLAUDE_PLUGIN_OPTION_<KEY>) ----
   const options = require(path.join(PLUGIN, 'lib', 'options'));
   const withEnv = (env, fn) => { const saved = {}; for (const k of Object.keys(env)) { saved[k] = process.env[k]; if (env[k] == null) delete process.env[k]; else process.env[k] = env[k]; } try { return fn(); } finally { for (const k of Object.keys(env)) { if (saved[k] == null) delete process.env[k]; else process.env[k] = saved[k]; } } };

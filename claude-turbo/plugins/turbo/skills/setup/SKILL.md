@@ -1,7 +1,7 @@
 ---
 name: setup
-description: Configure the current project for fast, safe Claude Code sessions. Use once per project (or when asked to "set up Claude for this repo"): writes a lean CLAUDE.md section, a project permission allowlist for the project's own safe commands, ignore entries, and a first handoff note.
-argument-hint: [optional: "minimal" | "full"]
+description: 'Configure the current project for fast, safe Claude Code sessions. Use once per project (or when asked to "set up Claude for this repo"): writes a lean CLAUDE.md section, a project permission allowlist for the project''s own safe commands, ignore entries, and a first handoff note.'
+argument-hint: '[optional: "minimal" | "full"]'
 allowed-tools: mcp__plugin_turbo_code__repo_map, mcp__plugin_turbo_code__file_outline, Read, Glob, Grep, Bash(git status *), PowerShell(git status *), Bash(git check-ignore *), PowerShell(git check-ignore *)
 ---
 

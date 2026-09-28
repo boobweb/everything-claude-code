@@ -8,6 +8,7 @@
 const fsx = require('../lib/fsx');
 const io = require('../lib/hookio');
 const options = require('../lib/options');
+const project = require('../lib/project');
 
 const BIG = 2 * 1024 * 1024;      // a Write over a file this large always asks
 const SHRINK_MIN = 48 * 1024;     // shrink check applies to files at least this large
@@ -37,5 +38,7 @@ io.main(async (input) => {
   if (!reason) return 0;
   // permissionDecisionReason is shown to the user; additionalContext carries the same guidance to Claude.
   io.emit({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: reason, additionalContext: reason } });
+  const cwd = input.cwd && fsx.isDir(input.cwd) ? input.cwd : process.cwd();
+  project.recordGuard(fsx.findProjectRoot(cwd), input.session_id, 'writesAsked');
   return 0;
 });

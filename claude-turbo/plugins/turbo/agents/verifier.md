@@ -1,6 +1,6 @@
 ---
 name: verifier
-description: Independent verification of a change. Use proactively after implementing a fix or feature, before telling the user it works: reads the diff, runs the real checks (syntax, tests, browser smoke test), tries to break it, and reports PASS or FAIL with evidence. Does not edit files.
+description: 'Independent verification of a change. Use proactively after implementing a fix or feature, before telling the user it works: reads the diff, runs the real checks (syntax, tests, browser smoke test), tries to break it, and reports PASS or FAIL with evidence. Does not edit files.'
 tools: Read, Grep, Glob, Bash, PowerShell, mcp__plugin_turbo_code__*
 model: inherit
 maxTurns: 40

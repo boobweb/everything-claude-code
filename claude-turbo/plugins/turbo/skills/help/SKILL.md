@@ -1,7 +1,7 @@
 ---
 name: help
 description: Explain what the Turbo plugin adds to Claude Code and how to use each part. Use when the user asks what turbo does, how to use a turbo skill or tool, or how to check that the plugin is working.
-allowed-tools: Read, Bash(node "${CLAUDE_PLUGIN_ROOT}/mcp/server.js" --selftest), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/mcp/server.js" --selftest)
+allowed-tools: Read, Bash(node "${CLAUDE_PLUGIN_ROOT}/mcp/server.js" --selftest), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/mcp/server.js" --selftest), Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/stats.js" *), PowerShell(node "${CLAUDE_PLUGIN_ROOT}/scripts/stats.js" *)
 ---
 
 # Turbo plugin — what it does
@@ -20,6 +20,8 @@ allowed-tools: Read, Bash(node "${CLAUDE_PLUGIN_ROOT}/mcp/server.js" --selftest)
 **Skills**: `/turbo:map` orient · `/turbo:patch` surgical edit with Find/Replace/Why/Test · `/turbo:debug` triage (not called / called but failed / completed but UI not updated) · `/turbo:verify` run all checks · `/turbo:smoke` headless browser boot test · `/turbo:handoff` next-session note · `/turbo:perf` measure-first optimization · `/turbo:release` ship checklist · `/turbo:setup` per-project config.
 
 **Subagents**: `turbo:verifier` (independent proof that a change works), `turbo:reviewer` (regression-focused diff review), `turbo:smoke-tester` (runs the browser smoke test and interprets it). Ask for them by name or let Claude delegate.
+
+**Continuity and stats**: every session start reports what the previous session in this project edited and whether it ended clean, plus how many broken edits, guarded commands and held writes Turbo has caught here. The full record (last 6 sessions) prints with `node "${CLAUDE_PLUGIN_ROOT}/scripts/stats.js" --data "${CLAUDE_PLUGIN_DATA}"` (add `--json` for the raw file). Records live under `${CLAUDE_PLUGIN_DATA}/projects/` and are removed when the plugin is uninstalled.
 
 **Health check**: run `node "${CLAUDE_PLUGIN_ROOT}/mcp/server.js" --selftest` (prints OK plus which optional tools were found: ripgrep, python), `/mcp` should list `plugin:turbo:code`, `/hooks` should show the five Turbo hooks. Debug a hook with `claude --debug` or set `TURBO_DEBUG=1` in the environment for verbose stderr.
 
