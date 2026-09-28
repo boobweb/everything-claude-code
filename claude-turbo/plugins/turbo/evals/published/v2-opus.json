@@ -1,0 +1,1212 @@
+{
+  "schemaVersion": 1,
+  "claudeVersion": "2.1.283",
+  "startedAt": "2026-09-28T13:04:49.859Z",
+  "durationSeconds": 93,
+  "costUsd": 1.775112,
+  "partial": false,
+  "suite": {
+    "root": "/home/user/everything-claude-code/claude-turbo/plugins/turbo",
+    "ablation": "with-without",
+    "modelOverride": "opus",
+    "threshold": 1,
+    "concurrency": 2,
+    "plugins": [
+      {
+        "name": "turbo",
+        "version": "1.0.0",
+        "path": "/home/user/everything-claude-code/claude-turbo/plugins/turbo"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "multi-add-method",
+      "dir": "evals/multi-add-method",
+      "source": "mixed",
+      "promptMarkdown": "In `src/app.js`, add a method `remove(k)` to the `Store` class that deletes key `k` from the underlying map and returns `this`, in the same one-line style as the existing `get` and `set` methods. Change nothing else.",
+      "runsPerCase": 2,
+      "timeoutSeconds": 300,
+      "maxTurns": 12,
+      "graders": [
+        {
+          "name": "method-present",
+          "type": "regex",
+          "weight": 2,
+          "config": {
+            "target": {
+              "source": "file",
+              "path": "src/app.js"
+            },
+            "pattern": "class Store \\{[\\s\\S]*remove\\(k\\) \\{ this\\.data\\.delete\\(k\\); return this; \\}[\\s\\S]*\\n\\}",
+            "flags": "",
+            "match": "contains"
+          }
+        },
+        {
+          "name": "rest-unchanged",
+          "type": "regex",
+          "weight": 1,
+          "config": {
+            "target": {
+              "source": "file",
+              "path": "src/app.js"
+            },
+            "pattern": "^'use strict';\\nconst util = require\\('\\./util\\.cjs'\\);\\n\\n/\\*\\* Create the application state\\. \\*/\\nfunction createState\\(opts = \\{\\}\\) \\{[\\s\\S]*module\\.exports = \\{ createState, loadData, Store, render \\};\\n$",
+            "flags": "",
+            "match": "contains"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 3,
+            "costUsd": 0.1373832,
+            "judgeCostUsd": 0,
+            "durationSeconds": 6,
+            "startedAt": "2026-09-28T13:04:49.919Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-LlEJJ2/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "method-present",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched class Store \\{[\\s\\S]*remove\\(k\\) \\{ this\\.data\\.delete\\(k\\); return this; \\}[\\s\\S]*\\n\\}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "rest-unchanged",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched ^'use strict';\\nconst util = require\\('\\./util\\.cjs'\\);\\n\\n/\\*\\* Create the application state\\. \\*/\\nfunction createState\\(opts = \\{\\}\\) \\{[\\s\\S]*module\\.exports = \\{ createState, loadData, Store, render \\};\\n$",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 3,
+            "costUsd": 0.1376048,
+            "judgeCostUsd": 0,
+            "durationSeconds": 6,
+            "startedAt": "2026-09-28T13:04:49.920Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-AHxWo3/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "method-present",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched class Store \\{[\\s\\S]*remove\\(k\\) \\{ this\\.data\\.delete\\(k\\); return this; \\}[\\s\\S]*\\n\\}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "rest-unchanged",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched ^'use strict';\\nconst util = require\\('\\./util\\.cjs'\\);\\n\\n/\\*\\* Create the application state\\. \\*/\\nfunction createState\\(opts = \\{\\}\\) \\{[\\s\\S]*module\\.exports = \\{ createState, loadData, Store, render \\};\\n$",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 3,
+            "costUsd": 0.06138140000000001,
+            "judgeCostUsd": 0,
+            "durationSeconds": 5,
+            "startedAt": "2026-09-28T13:04:56.010Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-ckkqaX/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "method-present",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched class Store \\{[\\s\\S]*remove\\(k\\) \\{ this\\.data\\.delete\\(k\\); return this; \\}[\\s\\S]*\\n\\}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "rest-unchanged",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched ^'use strict';\\nconst util = require\\('\\./util\\.cjs'\\);\\n\\n/\\*\\* Create the application state\\. \\*/\\nfunction createState\\(opts = \\{\\}\\) \\{[\\s\\S]*module\\.exports = \\{ createState, loadData, Store, render \\};\\n$",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 3,
+            "costUsd": 0.0615108,
+            "judgeCostUsd": 0,
+            "durationSeconds": 5,
+            "startedAt": "2026-09-28T13:04:56.399Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-Y5yv1c/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "method-present",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched class Store \\{[\\s\\S]*remove\\(k\\) \\{ this\\.data\\.delete\\(k\\); return this; \\}[\\s\\S]*\\n\\}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "rest-unchanged",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched ^'use strict';\\nconst util = require\\('\\./util\\.cjs'\\);\\n\\n/\\*\\* Create the application state\\. \\*/\\nfunction createState\\(opts = \\{\\}\\) \\{[\\s\\S]*module\\.exports = \\{ createState, loadData, Store, render \\};\\n$",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 1,
+        "passRateWithout": 1,
+        "delta": 0
+      }
+    },
+    {
+      "name": "multi-orient",
+      "dir": "evals/multi-orient",
+      "source": "mixed",
+      "promptMarkdown": "Answer these three questions about this repository. Cite the file and line number for each answer.\n\n1. Where does the question bank live and how many questions does it contain?\n2. What does the `save` method of the `Store` class return?\n3. Which Python method builds the list of question objects, and in which class is it?",
+      "runsPerCase": 2,
+      "timeoutSeconds": 300,
+      "maxTurns": 12,
+      "graders": [
+        {
+          "name": "answers",
+          "type": "llm",
+          "weight": 2,
+          "graderMarkdown": "PASS only if all three answers are correct: (1) the question bank is data/questions.json with 40 questions; (2) Store.save is an async method that returns true (a Promise resolving to true); (3) the list of question objects is built by the make method of the Generator class in tools/gen.py. FAIL if any answer is wrong, missing, or names a different file, method or count.",
+          "config": {
+            "criteria": "PASS only if all three answers are correct: (1) the question bank is data/questions.json with 40 questions; (2) Store.save is an async method that returns true (a Promise resolving to true); (3) the list of question objects is built by the make method of the Generator class in tools/gen.py. FAIL if any answer is wrong, missing, or names a different file, method or count.",
+            "focus": "last_message"
+          }
+        },
+        {
+          "name": "bank",
+          "type": "regex",
+          "weight": 1,
+          "config": {
+            "target": "last_message",
+            "pattern": "data/questions\\.json[\\s\\S]{0,200}\\b40\\b|\\b40\\b[\\s\\S]{0,200}data/questions\\.json",
+            "flags": "",
+            "match": "contains"
+          }
+        },
+        {
+          "name": "python-make",
+          "type": "regex",
+          "weight": 1,
+          "config": {
+            "target": "last_message",
+            "pattern": "gen\\.py:13",
+            "flags": "",
+            "match": "contains"
+          }
+        },
+        {
+          "name": "store-save",
+          "type": "regex",
+          "weight": 1,
+          "config": {
+            "target": "last_message",
+            "pattern": "src/app\\.js:19",
+            "flags": "",
+            "match": "contains"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 7,
+            "costUsd": 0.1074916,
+            "judgeCostUsd": 0.001461,
+            "durationSeconds": 16,
+            "startedAt": "2026-09-28T13:05:01.337Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-K4lyAo/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "answers",
+                "passed": true,
+                "weight": 2,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "1. **Question bank:** It's in `data/questions.json`, stored in the `\"questions\"` array that starts at `data/questions.json:3`. It has **40 questions**. I counted 40 `\"id\":` entries, running from `\"id\": 1` at `data/questions.json:5` onward. Each question has the keys `id`, `q`, `a` and `c`. The Python generator's default size matches this: `MAX_ITEMS = 40` at `tools/gen.py:5`.\n\n2. **`Store.save`:** It's an `async` method, so it returns a **Promise that resolves to `true`**. See `src/app.js:19`: `async save() { return true; }`. It doesn't actually save anything.\n\n3. **Building the question list:** That's **`make`** in the **`Generator`** class. The class starts at `tools/gen.py:9` and the method is at `tools/gen.py:13-14`. It returns `self.n` dicts, each shaped like `{\"id\": i, \"q\": f\"Q{i}\", \"a\": [\"A\",\"B\",\"C\",\"D\"], \"c\": i % 4}`."
+              },
+              {
+                "name": "bank",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched data/questions\\.json[\\s\\S]{0,200}\\b40\\b|\\b40\\b[\\s\\S]{0,200}data/questions\\.json",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "python-make",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched gen\\.py:13",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "store-save",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched src/app\\.js:19",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 6,
+            "costUsd": 0.10409180000000001,
+            "judgeCostUsd": 0.0014190000000000001,
+            "durationSeconds": 12,
+            "startedAt": "2026-09-28T13:05:01.778Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-tojBoh/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "answers",
+                "passed": true,
+                "weight": 2,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "1. **Question bank:** It lives in `data/questions.json`. The `questions` array starts at `data/questions.json:3` and holds **40 questions**, each with the keys `id`, `q`, `a` and `c`. The last entry has `\"id\": 40` (`data/questions.json:434`), and the file also has `\"version\": 1` at line 2. The generator's default size agrees: `MAX_ITEMS = 40` at `tools/gen.py:5`.\n\n2. **`Store.save()`:** It's declared `async save() { return true; }` at `src/app.js:19`, so it returns a **Promise that resolves to `true`**. It doesn't actually save anything; it's a stub.\n\n3. **Building the question objects:** That's the **`make`** method of the **`Generator`** class, at `tools/gen.py:13-14`. The class starts at `tools/gen.py:9`. `make` returns a list of `{\"id\", \"q\", \"a\", \"c\"}` dicts for `range(self.n)`, with `c = i % 4`."
+              },
+              {
+                "name": "bank",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched data/questions\\.json[\\s\\S]{0,200}\\b40\\b|\\b40\\b[\\s\\S]{0,200}data/questions\\.json",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "python-make",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched gen\\.py:13",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "store-save",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched src/app\\.js:19",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 6,
+            "costUsd": 0.1133808,
+            "judgeCostUsd": 0.0016349999999999997,
+            "durationSeconds": 14,
+            "startedAt": "2026-09-28T13:05:13.543Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-JUIkH8/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "answers",
+                "passed": true,
+                "weight": 2,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "1. **Question bank:** It's in `data/questions.json`, which holds **40 questions**. The `\"questions\"` array opens at `data/questions.json:3`, the first entry has `\"id\": 1` at line 5, and the last has `\"id\": 40` at line 434. That count matches `MAX_ITEMS = 40` in `tools/gen.py:5`, the default number of questions the generator makes.\n\n2. **`Store.save()`:** It's declared `async`, so it returns a **Promise that resolves to `true`**. It doesn't actually save anything (`src/app.js:19`: `async save() { return true; }`).\n\n3. **List builder:** The **`make`** method of the **`Generator`** class (`tools/gen.py:13`, class defined at line 9) builds the list. Line 14 creates `self.n` dicts, each with `id`, `q`, `a` (the four answer choices) and `c` (the correct answer index, `i % 4`).\n\n   The generator's output doesn't match the checked-in JSON. `make` starts ids at 0 and uses short text like `\"Q0\"` with choices `A`–`D`. The JSON starts ids at 1 and uses text like `\"Question 1: …\"` with choices `Alpha`–`Delta`. So `data/questions.json` wasn't produced by this generator as it's written now."
+              },
+              {
+                "name": "bank",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched data/questions\\.json[\\s\\S]{0,200}\\b40\\b|\\b40\\b[\\s\\S]{0,200}data/questions\\.json",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "python-make",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched gen\\.py:13",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "store-save",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched src/app\\.js:19",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 6,
+            "costUsd": 0.1182072,
+            "judgeCostUsd": 0.001791000000000001,
+            "durationSeconds": 15,
+            "startedAt": "2026-09-28T13:05:17.558Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-a0kpHr/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "answers",
+                "passed": true,
+                "weight": 2,
+                "explanation": "judge votes: PASS PASS FAIL",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  false
+                ],
+                "evidence": "1. **The question bank is in `data/questions.json`, and it has 40 questions.** The `\"questions\"` array starts at `data/questions.json:3`, and its last entry is `\"id\": 40` at `data/questions.json:434`. The IDs run from 1 to 40 with no gaps. The generator's default count agrees: `MAX_ITEMS = 40` at `tools/gen.py:5`.\n\n2. **`Store.save()` returns a Promise that resolves to `true`.** It's declared as `async save() { return true; }` at `src/app.js:19`, inside `class Store` (`src/app.js:15`). Because the method is `async`, callers get a Promise rather than a plain boolean.\n\n3. **The method is `make()` in the `Generator` class** (`tools/gen.py:13`, class at `tools/gen.py:9`). It returns a list of `self.n` question dicts with the fields `id`, `q`, `a` (the options `[\"A\",\"B\",\"C\",\"D\"]`) and `c` (the correct index, `i % 4`) (`tools/gen.py:14`).\n   - The questions are plain dicts, not instances of a class.\n   - `Generator.make()` numbers IDs from 0 and uses text like `\"Q0\"`. The committed JSON numbers from 1 and uses full question text, so `questions.json` wasn't produced by this exact code.\n   - The other `build` method, `Service.build` in `tools/svc.py:8`, only returns a `Service` instance and has nothing to do with questions."
+              },
+              {
+                "name": "bank",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched data/questions\\.json[\\s\\S]{0,200}\\b40\\b|\\b40\\b[\\s\\S]{0,200}data/questions\\.json",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "python-make",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched gen\\.py:13",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "store-save",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched src/app\\.js:19",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 1,
+        "passRateWithout": 1,
+        "delta": 0
+      }
+    },
+    {
+      "name": "webapp-find-function",
+      "dir": "evals/webapp-find-function",
+      "source": "mixed",
+      "promptMarkdown": "This directory contains a single-file web app, `index.html`. Tell me exactly which lines the function `pickDisc` occupies in `index.html` (first and last line number, 1-based, as they appear in the file) and what the function does, in three sentences or fewer. Do not modify any file.",
+      "runsPerCase": 2,
+      "timeoutSeconds": 300,
+      "maxTurns": 12,
+      "graders": [
+        {
+          "name": "behavior",
+          "type": "llm",
+          "weight": 2,
+          "graderMarkdown": "PASS only if the answer states all three of: (1) pickDisc stores its argument as the current discipline (assigns `disc`), (2) it sets the document's theme data attribute (documentElement.dataset.theme) to empty for \"neuro\" and to the discipline name otherwise, and (3) it switches to the mode screen by calling S('ms'). FAIL if any of the three is missing or if it describes behavior the function does not have.",
+          "config": {
+            "criteria": "PASS only if the answer states all three of: (1) pickDisc stores its argument as the current discipline (assigns `disc`), (2) it sets the document's theme data attribute (documentElement.dataset.theme) to empty for \"neuro\" and to the discipline name otherwise, and (3) it switches to the mode screen by calling S('ms'). FAIL if any of the three is missing or if it describes behavior the function does not have.",
+            "focus": "last_message"
+          }
+        },
+        {
+          "name": "exact-lines",
+          "type": "regex",
+          "weight": 2,
+          "config": {
+            "target": "last_message",
+            "pattern": "\\b483\\b[\\s\\S]{0,40}\\b487\\b",
+            "flags": "",
+            "match": "contains"
+          }
+        },
+        {
+          "name": "no-whole-file-read",
+          "type": "tool_used",
+          "weight": 1,
+          "config": {
+            "tool": "Read",
+            "input_match": "index\\.html",
+            "min": 0,
+            "max": 0,
+            "arm": "with-only"
+          }
+        },
+        {
+          "name": "turbo-find-symbol",
+          "type": "tool_used",
+          "weight": 1,
+          "config": {
+            "tool": "mcp__plugin_turbo_code__find_symbol",
+            "arm": "with-only"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 3,
+            "costUsd": 0.0805974,
+            "judgeCostUsd": 0.0009329999999999989,
+            "durationSeconds": 7,
+            "startedAt": "2026-09-28T13:05:27.462Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-aGIPwR/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "behavior",
+                "passed": true,
+                "weight": 2,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "`pickDisc` is on **lines 483–487** of `index.html`.\n\nIt stores the chosen discipline `d` in the global `disc` variable, which defaults to `'neuro'`. It then sets the page's `data-theme` attribute to `d`, or clears it if `d` is `'neuro'`. Finally, it calls `S('ms')`, which hides every screen (`.scr`) and shows the one with id `ms`."
+              },
+              {
+                "name": "exact-lines",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched \\b483\\b[\\s\\S]{0,40}\\b487\\b",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-whole-file-read",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Read called 0x (expected 0..0)",
+                "withOnly": true,
+                "scored": false
+              },
+              {
+                "name": "turbo-find-symbol",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_turbo_code__find_symbol called 1x (expected 1..∞)",
+                "withOnly": true,
+                "scored": false
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 4,
+            "costUsd": 0.0869794,
+            "judgeCostUsd": 0.0010110000000000015,
+            "durationSeconds": 11,
+            "startedAt": "2026-09-28T13:05:32.062Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-p5qpgY/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "behavior",
+                "passed": true,
+                "weight": 2,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "`pickDisc` is on **lines 483–487** of `index.html`. I read those lines to confirm the numbers and didn't change any file.\n\n`pickDisc(d)` stores the chosen discipline `d` in the global `disc` variable, which starts as `'neuro'`. It then sets the page's `data-theme` attribute to `d`, or clears it when `d` is `'neuro'`, which switches the colour theme. Finally it calls `S('ms')`, which hides every `.scr` screen and shows the one with id `ms`."
+              },
+              {
+                "name": "exact-lines",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched \\b483\\b[\\s\\S]{0,40}\\b487\\b",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-whole-file-read",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Read called 0x (expected 0..0)",
+                "withOnly": true,
+                "scored": false
+              },
+              {
+                "name": "turbo-find-symbol",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_turbo_code__find_symbol called 1x (expected 1..∞)",
+                "withOnly": true,
+                "scored": false
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 3,
+            "costUsd": 0.0657146,
+            "judgeCostUsd": 0.0009480000000000001,
+            "durationSeconds": 7,
+            "startedAt": "2026-09-28T13:05:34.608Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-O99lfb/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "behavior",
+                "passed": true,
+                "weight": 2,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "`pickDisc` runs from **line 483 to line 487** of `index.html`. I didn't change any files.\n\nIt saves the chosen arena (`d`) in the global `disc` variable. It sets the page's theme (`document.documentElement.dataset.theme`) to that arena's name, or to an empty string for `'neuro'`, which is the default theme. It then calls `S('ms')`, which hides the other screens and shows the one with id `ms`."
+              },
+              {
+                "name": "exact-lines",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched \\b483\\b[\\s\\S]{0,40}\\b487\\b",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 3,
+            "costUsd": 0.0659246,
+            "judgeCostUsd": 0.0009779999999999997,
+            "durationSeconds": 7,
+            "startedAt": "2026-09-28T13:05:41.271Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-JflBPV/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "behavior",
+                "passed": true,
+                "weight": 2,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "`pickDisc` is on **lines 483–487** of `index.html`.\n\nIt saves the chosen arena (for example `'neuro'`) in the global `disc` variable. It then sets `document.documentElement.dataset.theme` to that value, or to an empty string for `'neuro'`, which is the default theme. Finally, it calls `S('ms')` to switch to the `ms` screen, which is triggered by the \"Neuro\" button on line 19.\n\nI didn't change any files."
+              },
+              {
+                "name": "exact-lines",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched \\b483\\b[\\s\\S]{0,40}\\b487\\b",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 1,
+        "passRateWithout": 1,
+        "delta": 0
+      }
+    },
+    {
+      "name": "webapp-search-usages",
+      "dir": "evals/webapp-search-usages",
+      "source": "mixed",
+      "promptMarkdown": "In `index.html`, list every line where the variable `bossHp` appears, with its line number, and name the function each line belongs to (or say it is top-level). Do not modify any file.",
+      "runsPerCase": 2,
+      "timeoutSeconds": 300,
+      "maxTurns": 12,
+      "graders": [
+        {
+          "name": "functions",
+          "type": "llm",
+          "weight": 1,
+          "graderMarkdown": "PASS only if the answer lists exactly two occurrences: line 475 as a top-level declaration (the `let score = 0, combo = 0, hp = 100, bossHp = 100;` line) and line 518 inside the function uH (the HUD text update). FAIL if it lists other lines, misses one, or attributes a line to the wrong function.",
+          "config": {
+            "criteria": "PASS only if the answer lists exactly two occurrences: line 475 as a top-level declaration (the `let score = 0, combo = 0, hp = 100, bossHp = 100;` line) and line 518 inside the function uH (the HUD text update). FAIL if it lists other lines, misses one, or attributes a line to the wrong function.",
+            "focus": "last_message"
+          }
+        },
+        {
+          "name": "lines",
+          "type": "regex",
+          "weight": 2,
+          "config": {
+            "target": "last_message",
+            "pattern": "\\b475\\b[\\s\\S]*\\b518\\b",
+            "flags": "",
+            "match": "contains"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 3,
+            "costUsd": 0.08569879999999999,
+            "judgeCostUsd": 0.0011909999999999994,
+            "durationSeconds": 8,
+            "startedAt": "2026-09-28T13:05:42.956Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-CFOvXp/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "functions",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "`bossHp` appears on 2 lines in `index.html`:\n\n| Line | Code | Where |\n|---|---|---|\n| `index.html:475` | `let score = 0, combo = 0, hp = 100, bossHp = 100;` | Top-level: it's declared as a global state variable in the third `<script>` block |\n| `index.html:518` | `if (hud) hud.textContent = 'Score ' + ... + ' Boss ' + bossHp;` | Inside the function `uH()` (lines 516–519), which updates the on-screen score and health display |\n\nThis search was case-sensitive and covered the whole file, including the three large embedded audio/image data lines (26–28). No other lines contain `bossHp`. I didn't modify any files."
+              },
+              {
+                "name": "lines",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched \\b475\\b[\\s\\S]*\\b518\\b",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 3,
+            "costUsd": 0.08463480000000001,
+            "judgeCostUsd": 0.001226999999999999,
+            "durationSeconds": 10,
+            "startedAt": "2026-09-28T13:05:48.248Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-00oaUZ/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "functions",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "`bossHp` appears on two lines in `index.html`:\n\n| Line | Code | Belongs to |\n|---|---|---|\n| 475 | `let score = 0, combo = 0, hp = 100, bossHp = 100;` | Top-level: it's declared at the top of inline `<script #3>` |\n| 518 | `if (hud) hud.textContent = 'Score ' + score + ' Combo ' + combo + ' HP ' + hp + ' Boss ' + bossHp;` | Function `uH()` (lines 516–519) |\n\nThe search was case-sensitive and covered the whole file, including the three large base64 lines (26–28), which have no matches. Nothing else reads or changes `bossHp`: it's set to 100 and only ever shown in the on-screen status text. No files were modified."
+              },
+              {
+                "name": "lines",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched \\b475\\b[\\s\\S]*\\b518\\b",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 4,
+            "costUsd": 0.07639460000000001,
+            "judgeCostUsd": 0.0011880000000000016,
+            "durationSeconds": 9,
+            "startedAt": "2026-09-28T13:05:50.931Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-8G5bHp/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "functions",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "`bossHp` appears on two lines in `index.html`:\n\n| Line | Code | Scope |\n|---|---|---|\n| 475 | `let score = 0, combo = 0, hp = 100, bossHp = 100;` | Top-level (the declaration) |\n| 518 | `if (hud) hud.textContent = 'Score ' + score + ' Combo ' + combo + ' HP ' + hp + ' Boss ' + bossHp;` | Inside the function `uH()` (lines 516–519) |\n\nThe variable is set to 100 and only ever read, when the HUD text is built. Nothing in the file changes its value. A case-insensitive search for spellings like `bosshp` or `boss_hp` found no other matches. I didn't modify any files."
+              },
+              {
+                "name": "lines",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched \\b475\\b[\\s\\S]*\\b518\\b",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 4,
+            "costUsd": 0.07607159999999999,
+            "judgeCostUsd": 0.0011429999999999982,
+            "durationSeconds": 10,
+            "startedAt": "2026-09-28T13:05:57.852Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-6uXJgm/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "functions",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "`bossHp` appears on only two lines in `index.html`:\n\n| Line | Code | Scope |\n|---|---|---|\n| 475 | `let score = 0, combo = 0, hp = 100, bossHp = 100;` | Top-level (the variable is declared and set to 100 here) |\n| 518 | `if (hud) hud.textContent = '...' + ' Boss ' + bossHp;` | Inside the `uH()` function (lines 516–519), which updates the on-screen score display |\n\nAfter it is declared, nothing ever changes `bossHp`. It is only read, in `uH()`, so the display will always show 100 for the boss.\n\nI didn't modify any files."
+              },
+              {
+                "name": "lines",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched \\b475\\b[\\s\\S]*\\b518\\b",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 1,
+        "passRateWithout": 1,
+        "delta": 0
+      }
+    },
+    {
+      "name": "webapp-surgical-edit",
+      "dir": "evals/webapp-surgical-edit",
+      "source": "mixed",
+      "promptMarkdown": "In `index.html`, change the function `S(id)` so that, after it activates the screen, it also runs `document.body.dataset.screen = id;`. Make the smallest possible change: do not rewrite, reformat or re-save the whole file, and do not touch the embedded assets. When done, state the line number of the line you added.",
+      "runsPerCase": 2,
+      "timeoutSeconds": 300,
+      "maxTurns": 15,
+      "graders": [
+        {
+          "name": "assets-intact",
+          "type": "regex",
+          "weight": 2,
+          "config": {
+            "target": {
+              "source": "file",
+              "path": "index.html"
+            },
+            "pattern": "const IMG_TENS = \"data:image/png;base64,[A-Za-z0-9+/]{79000,}",
+            "flags": "",
+            "match": "contains"
+          }
+        },
+        {
+          "name": "change-present",
+          "type": "regex",
+          "weight": 2,
+          "config": {
+            "target": {
+              "source": "file",
+              "path": "index.html"
+            },
+            "pattern": "function S\\(id\\) \\{[\\s\\S]{0,300}document\\.body\\.dataset\\.screen = id;[\\s\\S]{0,40}\\}",
+            "flags": "",
+            "match": "contains"
+          }
+        },
+        {
+          "name": "no-whole-file-write",
+          "type": "tool_used",
+          "weight": 1,
+          "config": {
+            "tool": "Write",
+            "min": 0,
+            "max": 0
+          }
+        },
+        {
+          "name": "reported-line",
+          "type": "regex",
+          "weight": 1,
+          "config": {
+            "target": "last_message",
+            "pattern": "\\b48[01]\\b",
+            "flags": "",
+            "match": "contains"
+          }
+        },
+        {
+          "name": "tail-intact",
+          "type": "regex",
+          "weight": 1,
+          "config": {
+            "target": {
+              "source": "file",
+              "path": "index.html"
+            },
+            "pattern": "<script type=\"module\">\\nimport \\{ clamp \\} from '\\./src/util\\.mjs';\\nexport const VERSION = '3\\.0\\.0';[\\s\\S]*</html>\\s*$",
+            "flags": "",
+            "match": "contains"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 4,
+            "costUsd": 0.08508240000000002,
+            "judgeCostUsd": 0,
+            "durationSeconds": 8,
+            "startedAt": "2026-09-28T13:06:00.018Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-l3ju9U/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "assets-intact",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched const IMG_TENS = \"data:image/png;base64,[A-Za-z0-9+/]{79000,}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "change-present",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched function S\\(id\\) \\{[\\s\\S]{0,300}document\\.body\\.dataset\\.screen = id;[\\s\\S]{0,40}\\}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-whole-file-write",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Write called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "reported-line",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched \\b48[01]\\b",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "tail-intact",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched <script type=\"module\">\\nimport \\{ clamp \\} from '\\./src/util\\.mjs';\\nexport const VERSION = '3\\.0\\.0';[\\s\\S]*</html>\\s*$",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 4,
+            "costUsd": 0.08611239999999999,
+            "judgeCostUsd": 0,
+            "durationSeconds": 9,
+            "startedAt": "2026-09-28T13:06:07.715Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-SqW7Hb/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "assets-intact",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched const IMG_TENS = \"data:image/png;base64,[A-Za-z0-9+/]{79000,}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "change-present",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched function S\\(id\\) \\{[\\s\\S]{0,300}document\\.body\\.dataset\\.screen = id;[\\s\\S]{0,40}\\}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-whole-file-write",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Write called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "reported-line",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched \\b48[01]\\b",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "tail-intact",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched <script type=\"module\">\\nimport \\{ clamp \\} from '\\./src/util\\.mjs';\\nexport const VERSION = '3\\.0\\.0';[\\s\\S]*</html>\\s*$",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ],
+        "without": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 5,
+            "costUsd": 0.072527,
+            "judgeCostUsd": 0,
+            "durationSeconds": 8,
+            "startedAt": "2026-09-28T13:06:07.808Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-sk37KE/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "assets-intact",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched const IMG_TENS = \"data:image/png;base64,[A-Za-z0-9+/]{79000,}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "change-present",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched function S\\(id\\) \\{[\\s\\S]{0,300}document\\.body\\.dataset\\.screen = id;[\\s\\S]{0,40}\\}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-whole-file-write",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Write called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "reported-line",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched \\b48[01]\\b",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "tail-intact",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched <script type=\"module\">\\nimport \\{ clamp \\} from '\\./src/util\\.mjs';\\nexport const VERSION = '3\\.0\\.0';[\\s\\S]*</html>\\s*$",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          },
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 4,
+            "costUsd": 0.0683228,
+            "judgeCostUsd": 0,
+            "durationSeconds": 7,
+            "startedAt": "2026-09-28T13:06:16.120Z",
+            "error": null,
+            "tracePath": "/tmp/claude-eval-G4KFHX/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "graders": [
+              {
+                "name": "assets-intact",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched const IMG_TENS = \"data:image/png;base64,[A-Za-z0-9+/]{79000,}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "change-present",
+                "passed": true,
+                "weight": 2,
+                "explanation": "matched function S\\(id\\) \\{[\\s\\S]{0,300}document\\.body\\.dataset\\.screen = id;[\\s\\S]{0,40}\\}",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "no-whole-file-write",
+                "passed": true,
+                "weight": 1,
+                "explanation": "Write called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "reported-line",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched \\b48[01]\\b",
+                "withOnly": false,
+                "scored": true
+              },
+              {
+                "name": "tail-intact",
+                "passed": true,
+                "weight": 1,
+                "explanation": "matched <script type=\"module\">\\nimport \\{ clamp \\} from '\\./src/util\\.mjs';\\nexport const VERSION = '3\\.0\\.0';[\\s\\S]*</html>\\s*$",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1,
+        "scoreWithout": 1,
+        "passRateWithout": 1,
+        "delta": 0
+      }
+    }
+  ],
+  "aggregates": {
+    "casesTotal": 5,
+    "casesPassed": 5,
+    "overallScore": 1,
+    "overallPassRate": 1,
+    "meanDelta": 0
+  }
+}

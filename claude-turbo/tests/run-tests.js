@@ -13,6 +13,7 @@ const { makeFixture } = require('./fixture');
 const { connect, initialize, call } = require('./mcp-client');
 const parsers = require('./parsers');
 const guards = require('./guards');
+const tidy = require('./tidy');
 
 const ROOT = path.resolve(__dirname, '..');
 const PLUGIN = path.join(ROOT, 'plugins', 'turbo');
@@ -293,7 +294,7 @@ function testStatic() {
   const fmOf = (t) => { const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(t); return m ? m[1].split(/\r?\n/) : null; };
   const badYaml = (lines) => lines.filter((l) => { const m = /^([\w-]+):\s*(.*)$/.exec(l); if (!m) return !/^\s/.test(l) && l.trim() !== ''; const v = m[2]; if (!v) return false; if (/^["']/.test(v)) return !/^"(?:[^"\\]|\\.)*"$|^'(?:[^']|'')*'$/.test(v); return /^[[{&*!|>%@`]/.test(v) || /:\s|\s#/.test(v); });
   const skills = fs.readdirSync(path.join(PLUGIN, 'skills'));
-  check('10 skills with frontmatter name + description', skills.length === 10 && skills.every((s) => { const fm = fmOf(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8')); return fm && fm.some((l) => /^name: [a-z-]+$/.test(l)) && fm.some((l) => /^description: .+/.test(l)); }), skills.join(','));
+  check('11 skills with frontmatter name + description', skills.length === 11 && skills.every((s) => { const fm = fmOf(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8')); return fm && fm.some((l) => /^name: [a-z-]+$/.test(l)) && fm.some((l) => /^description: .+/.test(l)); }), skills.join(','));
   check('skill frontmatter is strict-YAML safe (quoted hints, no stray ": " or " #")', skills.every((s) => { const fm = fmOf(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8')); return fm && badYaml(fm).length === 0; }), skills.map((s) => { const fm = fmOf(fs.readFileSync(path.join(PLUGIN, 'skills', s, 'SKILL.md'), 'utf8')); return `${s}: ${(fm ? badYaml(fm) : ['no frontmatter']).join(' | ')}`; }).filter((x) => !/: $/.test(x)).join('\n'));
   const agents = fs.readdirSync(path.join(PLUGIN, 'agents'));
   check('3 agents with frontmatter name + description + tools', agents.length === 3 && agents.every((a) => { const fm = fmOf(fs.readFileSync(path.join(PLUGIN, 'agents', a), 'utf8')); return fm && fm.some((l) => /^name: [a-z-]+$/.test(l)) && fm.some((l) => /^description: .+/.test(l)) && fm.some((l) => /^tools: .+/.test(l)) && badYaml(fm).length === 0; }), agents.join(','));
@@ -309,6 +310,7 @@ function testStatic() {
     testStatic();
     parsers.run(check, { PLUGIN, FIX, DATA });
     guards.run(check, { PLUGIN, FIX, DATA });
+    tidy.run(check, { PLUGIN, FIX, DATA });
     await testMCP();
     testHooks();
     testSmoke();

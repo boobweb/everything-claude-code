@@ -1,0 +1,3 @@
+:root { --x: 1; }
+.a { color: red; }
+@media (min-width: 800px) { .a { color: blue; } }
