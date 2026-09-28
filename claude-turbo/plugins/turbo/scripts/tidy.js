@@ -96,14 +96,17 @@ function globToRe(glob) {
 function normalizeRoots(roots, log) {
   const out = [];
   for (const r0 of roots) {
-    let r = path.resolve(r0);
-    try { r = fs.realpathSync.native(r); } catch { /* keep as typed */ }
-    const key = process.platform === 'win32' ? r.toLowerCase() : r;
+    // the root keeps the form it was typed in (paths in the report and manifest must match what the user sees);
+    // the real path (symlinks resolved, macOS /var -> /private/var) is only the key that detects overlap
+    const abs = path.resolve(r0);
+    let real = abs;
+    try { real = fs.realpathSync.native(abs); } catch { /* not resolvable: compare as typed */ }
+    const key = process.platform === 'win32' ? real.toLowerCase() : real;
     const within = (a, b) => a === b || a.startsWith(b.endsWith(path.sep) ? b : b + path.sep);
     const covered = out.find((o) => within(key, o.key));
     if (covered) { if (log) log(`  note: ${r0} is inside ${covered.abs}; scanning it once`); continue; }
     for (let i = out.length - 1; i >= 0; i--) if (within(out[i].key, key)) { if (log) log(`  note: ${out[i].abs} is inside ${r0}; scanning it once`); out.splice(i, 1); }
-    out.push({ abs: r, key });
+    out.push({ abs, key });
   }
   return out.map((o) => o.abs);
 }

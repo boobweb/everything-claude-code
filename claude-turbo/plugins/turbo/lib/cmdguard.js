@@ -269,21 +269,22 @@ function classifyTarget(raw, ctx) {
   try {
     resolved = dotTarget ? path.resolve(base) : fsx.normPath(t.replace(HOME_PREFIX, '~').replace(/[\\/]\*(\.\*)?$/, ''), base);
   } catch { return 'ask'; }
-  const verdict = (p) => {
+  const verdict = (p, b) => {
     const r = norm(p);
-    if (r === home || r === norm(path.parse(p).root) || home.startsWith(r + sep)) return 'deny';
-    if (root.startsWith(r + sep)) return 'deny'; // a parent of the project
-    if (r === root) return 'ask';
-    if (r.startsWith(root + sep)) return (r.endsWith(sep + '.git') || r.includes(sep + '.git' + sep)) ? 'ask' : 'allow';
-    if (isAbs && !hasDotDot && r.startsWith(tmp + sep)) return 'allow'; // an explicitly typed temp path
+    if (r === b.home || r === norm(path.parse(p).root) || b.home.startsWith(r + sep)) return 'deny';
+    if (b.root.startsWith(r + sep)) return 'deny'; // a parent of the project
+    if (r === b.root) return 'ask';
+    if (r.startsWith(b.root + sep)) return (r.endsWith(sep + '.git') || r.includes(sep + '.git' + sep)) ? 'ask' : 'allow';
+    if (isAbs && !hasDotDot && r.startsWith(b.tmp + sep)) return 'allow'; // an explicitly typed temp path
     return 'ask';
   };
-  const lexical = verdict(resolved);
-  // a symlink inside the project may point anywhere: judge the real location too and keep the worse verdict
-  let real = null;
-  try { real = fsx.realpathDeep(resolved); } catch { /* ignore */ }
-  if (real && norm(real) !== norm(resolved)) {
-    const rv = verdict(real);
+  const lexical = verdict(resolved, { home, root, tmp });
+  // A symlink inside the project may point anywhere: judge the real location too, against the real locations of
+  // home, project and temp (macOS /var -> /private/var, a project reached through a linked folder), keep the worse verdict.
+  const realOf = (p) => { try { return fsx.realpathDeep(p); } catch { return p; } };
+  const real = realOf(resolved);
+  if (norm(real) !== norm(resolved)) {
+    const rv = verdict(real, { home: norm(realOf(os.homedir())), root: norm(realOf(ctx.root)), tmp: norm(realOf(os.tmpdir())) });
     const rank = { deny: 2, ask: 1, allow: 0 };
     return rank[rv] > rank[lexical] ? rv : lexical;
   }

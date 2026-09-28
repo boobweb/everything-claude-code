@@ -83,6 +83,15 @@ function run(check, { PLUGIN, DATA }) {
   const r2 = tidy.buildReport([root, path.join(root, 'docs'), root], { ...opts }, () => {});
   check('tidy: overlapping roots (root + root/docs + root again) collapse to one scan with the same findings', r2.roots.length === 1 && r2.scanned.files === r.scanned.files && r2.duplicates.length === 1 && !r2.duplicates.some((g) => g.extra.includes(g.keep)), JSON.stringify([r2.roots, r2.scanned.files, r2.duplicates]));
   check('tidy: normalizeRoots drops nested and repeated roots whichever order they come in', tidy.normalizeRoots([path.join(root, 'docs'), root, path.join(root, 'photos')]).length === 1 && tidy.normalizeRoots([root, path.join(DATA, 'tidy-claude')]).length === 2);
+  {
+    const linkRoot = path.join(DATA, 'tidy-rootlink');
+    let ok = null;
+    try { fs.symlinkSync(root, linkRoot, 'dir'); ok = tidy.normalizeRoots([linkRoot, root]); } catch { /* no symlink privilege */ }
+    if (ok) {
+      check('tidy: a root given through a symlink keeps its typed form and is not scanned twice (macOS /var -> /private/var)', ok.length === 1 && ok[0] === linkRoot && tidy.buildReport([linkRoot], { ...opts }, () => {}).duplicates[0].keep.startsWith(linkRoot), JSON.stringify(ok));
+      try { fs.unlinkSync(linkRoot); } catch { /* ignore */ }
+    }
+  }
   // 11. project folders are units: nothing inside them is a duplicate of another project's file or an empty file to remove
   const root2 = path.join(DATA, 'tidy-root2');
   fs.rmSync(root2, { recursive: true, force: true });

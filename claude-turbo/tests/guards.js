@@ -167,6 +167,16 @@ function run(check, { PLUGIN, FIX }) {
     try { fs.unlinkSync(link); } catch { /* ignore */ }
   } else console.log('  skip symlink tests (cannot create symlinks here)');
   try { fs.rmSync(outside, { recursive: true, force: true }); } catch { /* ignore */ }
+  // a project reached through a symlinked parent (macOS /var -> /private/var, a linked workspace folder) is still the project
+  const linkParent = path.join(os.tmpdir(), `turbo-linkparent-${process.pid}`);
+  let parentLinked = false;
+  try { fs.symlinkSync(path.dirname(FIX), linkParent, 'dir'); parentLinked = true; } catch { /* no symlink privilege */ }
+  if (parentLinked) {
+    const viaLink = path.join(linkParent, path.basename(FIX));
+    const lctx = { cwd: viaLink, root: viaLink };
+    check('security: a project root reached through a symlinked parent keeps in-project deletes silent and the rest guarded', guard.classifyTarget('dist', lctx) === 'allow' && guard.deleteGuard('rm -rf dist', lctx) === null && guard.deleteGuard('cd src && rm -rf *', lctx) === null && guard.classifyTarget('.', lctx) === 'ask' && guard.classifyTarget('..', lctx) === 'deny', JSON.stringify([guard.classifyTarget('dist', lctx), guard.deleteGuard('rm -rf dist', lctx), guard.classifyTarget('.', lctx), guard.classifyTarget('..', lctx)]));
+    try { fs.unlinkSync(linkParent); } catch { /* ignore */ }
+  }
   // 14. a poisoned probes.json never becomes a command to run
   {
     const proc = path.join(PLUGIN, 'lib', 'proc');
