@@ -1,0 +1,71 @@
+name: Turbo tests (claude-turbo)
+
+# The Turbo plugin kit lives in claude-turbo/ and ships its own workflow for the day it becomes a
+# standalone repository (claude-turbo/.github/workflows/test.yml). GitHub only runs workflows from
+# the repository root, so this file runs the same matrix here, scoped to changes under claude-turbo/.
+
+on:
+  push:
+    paths:
+      - 'claude-turbo/**'
+      - '.github/workflows/turbo-test.yml'
+  pull_request:
+    paths:
+      - 'claude-turbo/**'
+      - '.github/workflows/turbo-test.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: claude-turbo
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['20.x', '24.x']
+        exclude:
+          - os: macos-latest
+            node: '20.x'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Node.js ${{ matrix.node }}
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install optional tools (typescript, Playwright, claude CLI)
+        shell: bash
+        run: |
+          npm install -g typescript@5 playwright @anthropic-ai/claude-code
+          npx playwright install --with-deps chromium
+          echo "NODE_PATH=$(npm root -g)" >> "$GITHUB_ENV"
+
+      - name: Environment
+        shell: bash
+        run: |
+          node --version
+          (python3 --version || python --version || py -3 --version) 2>/dev/null || echo "no python"
+          (pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()') 2>/dev/null || echo "no pwsh"
+          (rg --version | head -1) 2>/dev/null || echo "no ripgrep"
+          (claude --version) 2>/dev/null || echo "no claude"
+
+      - name: Run the suite
+        shell: bash
+        run: node tests/run-tests.js

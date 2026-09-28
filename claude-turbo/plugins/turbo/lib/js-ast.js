@@ -122,8 +122,12 @@ function extractSymbols(ast, { lineOffset = 0, maxSymbols = 600 } = {}) {
     if (init.type === 'CallExpression' && init.callee.type === 'Identifier' && init.callee.name === 'require') { imports++; return; }
     if (init.type === 'NewExpression') return top && push({ name, kind: 'state', line: L(d), endLine: E(d), sig: `new ${memberName(init.callee) || '…'}`, exported });
     if (top) {
+      // UPPER_CASE constants and anything exported are part of the file's interface; other
+      // top-level `const` scalars are noise. `let`/`var` at top level is mutable state: always listed.
+      const valueSig = init.type === 'Literal' ? `= ${String(init.raw).slice(0, 20)}` : init.type === 'CallExpression' ? `= ${memberName(init.callee) || 'call'}(…)` : `= ${init.type}`;
       if (/^[A-Z][A-Z0-9_]{2,}$/.test(d.id.name)) return push({ name, kind: 'const', line: L(d), endLine: E(d), sig: init.type === 'Literal' ? String(init.raw).slice(0, 30) : init.type, exported });
-      if (d.parentKind !== 'const') return push({ name, kind: 'state', line: L(d), endLine: E(d), sig: init.type === 'Literal' ? `= ${String(init.raw).slice(0, 20)}` : init.type === 'CallExpression' ? `= ${memberName(init.callee) || 'call'}(…)` : `= ${init.type}`, exported });
+      if (d.parentKind !== 'const') return push({ name, kind: 'state', line: L(d), endLine: E(d), sig: valueSig, exported });
+      if (exported) return push({ name, kind: 'const', line: L(d), endLine: E(d), sig: valueSig, exported });
     }
   }
 

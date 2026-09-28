@@ -204,6 +204,12 @@ def main(argv):
 if __name__ == "__main__":
     main(sys.argv)
 `);
+  // JSX inside a plain .js file (React projects do this): no JS parser can judge it, so checks must skip, not fail
+  fs.writeFileSync(path.join(dir, 'src', 'widget.js'), `import React from 'react';\n\nexport function Widget({ title }) {\n  return <div className="w"><h1>{title}</h1></div>;\n}\n`);
+  // ESM with top-level await: valid only as a module
+  fs.writeFileSync(path.join(dir, 'src', 'tla.mjs'), `const cfg = await Promise.resolve({ ok: true });\nexport default cfg;\n`);
+  // Python with async, decorators and a nested class: exercises the ast-based outline
+  fs.writeFileSync(path.join(dir, 'tools', 'svc.py'), `import asyncio\n\n\nclass Service:\n    """A service."""\n\n    @staticmethod\n    def build(cfg):\n        return Service()\n\n    async def fetch(self, url, *, retries=3):\n        await asyncio.sleep(0)\n        return url\n\n    class Inner:\n        def ping(self):\n            return "pong"\n\n\nasync def run(argv):\n    svc = Service.build(None)\n    return await svc.fetch(argv[0])\n`);
   fs.writeFileSync(path.join(dir, 'styles.css'), `:root { --x: 1; }\n.a { color: red; }\n@media (min-width: 800px) { .a { color: blue; } }\n`);
   fs.writeFileSync(path.join(dir, 'README.md'), `# Arena Fixture\n\nA fixture project.\n\n## Running\n\nOpen index.html.\n\n## Architecture\n\n### Engine\n\nSee src/app.js.\n`);
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'arena-fixture', version: '1.0.0', scripts: { test: 'node -e "process.exit(0)"', lint: 'echo lint', build: 'echo build' }, devDependencies: {} }, null, 2));
@@ -220,6 +226,8 @@ if __name__ == "__main__":
   fs.writeFileSync(path.join(dir, 'broken', 'bad.ps1'), `function Bad {\n  Write-Host "x"\n`);
   fs.writeFileSync(path.join(dir, 'broken', 'bad.sh'), `#!/bin/bash\nif [ 1 -eq 1 ]; then\n  echo hi\n`);
   fs.writeFileSync(path.join(dir, 'broken', 'bad.svg'), `<svg xmlns="http://www.w3.org/2000/svg"><g><rect/></svg>\n`);
+  // an import statement in a CommonJS file is a real error (node rejects it); the checker must not "auto-detect" it away
+  fs.writeFileSync(path.join(dir, 'broken', 'esm-in.cjs'), `import fs from 'fs';\nmodule.exports = fs;\n`);
 
   // git repo with one commit so git tools have something to say
   const run = (args) => spawnSync('git', args, { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'fixture', GIT_AUTHOR_EMAIL: 'f@x', GIT_COMMITTER_NAME: 'fixture', GIT_COMMITTER_EMAIL: 'f@x' } });

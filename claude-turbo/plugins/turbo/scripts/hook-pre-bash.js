@@ -98,16 +98,15 @@ function splitSegments(cmd) {
 
 const HOME_MARK = /^(~|~[\\/]|\$HOME|\$\{HOME\}|\$env:USERPROFILE|\$env:HOME|%USERPROFILE%|%HOMEPATH%)([\\/]?)$/i;
 const SYSTEM_DIRS = [/^[A-Za-z]:[\\/]?\*?$/, /^[A-Za-z]:[\\/](Users|Windows|Program Files( \(x86\))?|ProgramData)[\\/]?\*?$/i, /^\/(\*|home|Users|etc|usr|var|bin|sbin|lib|lib64|opt|root|boot|System|Library|Applications)?[\\/]?\*?$/, /^%(SystemRoot|ProgramFiles|windir)%/i];
+// Any user's profile root (not only the current user's): C:\Users\name, /home/name, /Users/name
+const USER_HOME_ROOT = /^(?:[A-Za-z]:[\\/](?:Users|home)[\\/][^\\/]+|\/(?:home|Users)\/[^/]+)[\\/]?\*?$/i;
 
 function classifyTarget(raw, ctx) {
   let t = raw.trim();
   if (!t) return null;
-  if (HOME_MARK.test(t) || SYSTEM_DIRS.some((re) => re.test(t))) return 'deny';
+  if (HOME_MARK.test(t) || SYSTEM_DIRS.some((re) => re.test(t)) || USER_HOME_ROOT.test(t)) return 'deny';
   // Windows drive paths evaluated on a POSIX host (tests, WSL): pattern-based, since they cannot resolve
-  if (process.platform !== 'win32' && /^[A-Za-z]:[\\/]/.test(t)) {
-    if (/^[A-Za-z]:[\\/](Users|home)[\\/][^\\/]+[\\/]?\*?$/i.test(t)) return 'deny'; // a user's home directory
-    return 'ask';
-  }
+  if (process.platform !== 'win32' && /^[A-Za-z]:[\\/]/.test(t)) return 'ask';
   const sep = path.sep;
   const norm = (p) => (process.platform === 'win32' ? p.toLowerCase() : p).replace(/[\\/]+$/, '');
   const home = norm(os.homedir()), root = norm(ctx.root), tmp = norm(os.tmpdir());
@@ -196,7 +195,7 @@ function evaluate(cmd, ctx, depth = 0) {
   return null;
 }
 
-io.main(async (input) => {
+async function main(input) {
   const cmd = String((input.tool_input && (input.tool_input.command || input.tool_input.script)) || '');
   if (!cmd.trim()) return 0;
   const norm = cmd.replace(/\\\r?\n/g, ' ').replace(/`\r?\n/g, ' ');
@@ -212,6 +211,9 @@ io.main(async (input) => {
     io.emit({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: reason, additionalContext: `${reason} If the user declines, do not retry the same command; choose a narrower, in-project alternative.` } });
   }
   return 0;
-});
+}
 
-module.exports = { evaluate, deleteGuard, classifyTarget, splitSegments, tokens, innerCommands };
+// Only act as a hook when executed directly; tests require() the guard functions.
+if (require.main === module) io.main(main);
+
+module.exports = { evaluate, deleteGuard, classifyTarget, splitSegments, tokens, innerCommands, main };

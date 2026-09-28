@@ -11,6 +11,8 @@ const os = require('os');
 const { spawnSync } = require('child_process');
 const { makeFixture } = require('./fixture');
 const { connect, initialize, call } = require('./mcp-client');
+const parsers = require('./parsers');
+const guards = require('./guards');
 
 const ROOT = path.resolve(__dirname, '..');
 const PLUGIN = path.join(ROOT, 'plugins', 'turbo');
@@ -62,10 +64,20 @@ async function testMCP() {
   check('file_outline: script blocks, ids, blobs, functions (exact line range)', /script 4/.test(r.text) && /#loading-overlay/.test(r.text) && /98% of the file/.test(r.text) && /L483-487\s+function\s+pickDisc\(d\)/.test(r.text), r.text);
   check('file_outline: class methods qualified', /Engine\.next\(\)/.test(r.text) && /Audio\.play\(name\)/.test(r.text) && /Engine\.reset\(\)/.test(r.text), r.text);
   check('file_outline: iife detected', /\(iife bootstrap\)/.test(r.text), r.text);
+  check('file_outline: html reports the parser and exact ranges for methods', /parser: acorn/.test(r.text) && /L500-502\s+method\s+Engine\.next\(\)/.test(r.text) && /Engine\.create\(\)\s+static/.test(r.text) && /Audio\.play\(name\)\s+async/.test(r.text) && /L539\s+const\s+VERSION\s+'3\.0\.0'\s+export/.test(r.text), r.text);
   r = await call(c, 'file_outline', { path: 'tools/gen.py' });
+  const pyExact = /parser: python-ast/.test(r.text);
   check('file_outline python: class, methods, constants, __main__', /Generator\.make\(self\)/.test(r.text) && /array\s+TAGS/.test(r.text) && /__main__/.test(r.text), r.text);
+  check(`file_outline python: ${pyExact ? 'exact class range and qualified __init__ (python-ast)' : 'heuristic outline (python not found)'}`, !pyExact || (/L9-14\s+class\s+Generator/.test(r.text) && /L10-11\s+method\s+Generator\.__init__\(self, n\)/.test(r.text)), r.text);
+  r = await call(c, 'file_outline', { path: 'tools/svc.py' });
+  check('file_outline python: async/decorators as mods, nested class qualified', /Service\.fetch\(self, url, retries\)\s+async/.test(r.text) && /Service\.build\(cfg\)\s+@staticmethod/.test(r.text) && /Service\.Inner\.ping\(self\)/.test(r.text) || !pyExact, r.text);
   r = await call(c, 'file_outline', { path: 'src/types.ts' });
   check('file_outline ts: interface/type/enum/class', /interface\s+Question/.test(r.text) && /enum\s+Theme/.test(r.text) && /class\s+Bank/.test(r.text), r.text);
+  if (parsers.tsResolvable(FIX)) check('file_outline ts: exact (typescript resolvable): return types, constructor, exports', /parser: typescript/.test(r.text) && /score\(q, pick\)\s+export -> number/.test(r.text) && /Bank\.constructor\(items\)/.test(r.text), r.text);
+  r = await call(c, 'file_outline', { path: 'src/util.mjs' });
+  check('file_outline: .mjs parsed as module with exported symbols marked', /parser: acorn, module/.test(r.text) && /clamp\(n, lo, hi\)\s+export/.test(r.text) && /L3-6\s+class\s+Timer\s+export/.test(r.text), r.text);
+  r = await call(c, 'file_outline', { path: 'src/widget.js' });
+  check('file_outline: JSX file falls back to heuristics and still lists the component', /parser: heuristic/.test(r.text) && /Widget/.test(r.text), r.text);
   r = await call(c, 'file_outline', { path: 'README.md' });
   check('file_outline markdown headings', /h2\s+Running/.test(r.text) && /h3\s+Engine/.test(r.text), r.text);
   r = await call(c, 'file_outline', { path: 'data/questions.json' });
@@ -89,7 +101,11 @@ async function testMCP() {
   r = await call(c, 'find_symbol', { name: 'Store.save', path: 'src' });
   check('find_symbol Class.method within a directory', /src\/app\.js:\d+/.test(r.text) && /async save\(\)/.test(r.text), r.text);
   r = await call(c, 'find_symbol', { name: 'QN', max_body_lines: 5 });
-  check('find_symbol data array truncates body', /array QN/.test(r.text) && /body truncated at 5 lines/.test(r.text), r.text);
+  check('find_symbol data array truncates body', /array QN/.test(r.text) && /body truncated at 5 lines/.test(r.text) && /index\.html:32-473/.test(r.text), r.text);
+  r = await call(c, 'find_symbol', { name: 'Engine.create' });
+  check('find_symbol uses the exact end line from the parser (static method 503-505)', /index\.html:503-505\s+method Engine\.create\(\)\s+static/.test(r.text) && /505│\s+\}/.test(r.text), r.text);
+  r = await call(c, 'find_symbol', { name: 'Service.fetch', path: 'tools' });
+  check('find_symbol python method body via exact range', (/svc\.py:11-13/.test(r.text) && /async def fetch/.test(r.text)) || !pyExact, r.text);
   r = await call(c, 'find_symbol', { name: 'nonexistent_symbol_xyz' });
   check('find_symbol no match message', /No symbol matching/.test(r.text), r.text);
 
@@ -116,6 +132,8 @@ async function testMCP() {
   fs.writeFileSync(path.join(FIX, 'strtag.html'), '<html><body><script>\nconst t = "<script src=x><\\/script>";\n</script><script type="x-shader/x-vertex">attribute vec3 p;</script><script type="application/ld+json">{"a":1}</script></body></html>');
   r = await call(c, 'syntax_check', { paths: ['esm-browser.js', 'bom.json', 'strtag.html'] });
   check('syntax_check: browser ESM .js, BOM json, script-in-string html and non-JS script types all pass', /esm-browser\.js: OK/.test(r.text) && /bom\.json: OK/.test(r.text) && /strtag\.html: OK/.test(r.text), r.text);
+  r = await call(c, 'syntax_check', { paths: ['src/widget.js', 'src/tla.mjs', 'broken/esm-in.cjs', 'src/util.cjs'] });
+  check('syntax_check: JSX .js skipped with reason, TLA .mjs OK, import in .cjs flagged, plain .cjs OK', /widget\.js: not checked \(looks like JSX/.test(r.text) && /tla\.mjs: OK \(acorn/.test(r.text) && /esm-in\.cjs:1:1\s+SyntaxError/.test(r.text) && /util\.cjs: OK/.test(r.text), r.text);
 
   r = await call(c, 'file_stats', { path: 'index.html' });
   check('file_stats blob map with labels', /L26: 156KB base64 data URI \(audio\/mpeg\) — SFX_OK/.test(r.text) && /script blocks: 4/.test(r.text), r.text);
@@ -162,6 +180,10 @@ function testHooks() {
   check('post-edit resolves relative/backslash path against cwd', h.json && h.json.decision === 'block' && /bad\.json/.test(h.json.reason), h.stdout + h.stderr);
   h = hook('hook-post-edit.js', { session_id: 'T', cwd: FIX, tool_name: 'Edit', tool_input: {} });
   check('post-edit tolerates missing tool_input', h.status === 0);
+  h = hook('hook-post-edit.js', { session_id: 'T', cwd: FIX, tool_name: 'Edit', tool_input: { file_path: path.join(FIX, 'src', 'widget.js') } });
+  check('post-edit does not block on JSX inside a .js file', h.status === 0 && h.stdout.trim() === '', h.stdout + h.stderr);
+  h = hook('hook-post-edit.js', { session_id: 'T', cwd: FIX, tool_name: 'Edit', tool_input: { file_path: path.join(FIX, 'broken', 'esm-in.cjs') } });
+  check('post-edit blocks on import inside .cjs with line:col', h.json && h.json.decision === 'block' && /esm-in\.cjs:1:1/.test(h.json.reason), h.stdout + h.stderr);
   h = hook('hook-post-edit.js', {});
   check('post-edit tolerates empty payload', h.status === 0);
 
@@ -249,6 +271,8 @@ function testStatic() {
   fs.mkdirSync(DATA, { recursive: true });
   try {
     testStatic();
+    parsers.run(check, { PLUGIN, FIX, DATA });
+    guards.run(check, { PLUGIN, FIX, DATA });
     await testMCP();
     testHooks();
     testSmoke();

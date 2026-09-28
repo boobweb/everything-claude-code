@@ -36,7 +36,7 @@ try { jsAst = require('./js-ast'); } catch { jsAst = null; }
 
 const JSX_LIKE = /<[A-Z][A-Za-z0-9]*[\s/>]|<\/[a-z][a-z0-9-]*>\s*[);,]|^\s*\/\/\s*@flow\b|^\s*\/\*\s*@flow\b/m;
 
-/** node --check on a file path (spawned): the confirmation step, and the fallback when acorn is unavailable. */
+/** node --check on a file path (spawned). */
 function nodeCheckFile(file) {
   const r = run(NODE, ['--check', file], { timeout: 20000 });
   if (r.timedOut) return { ok: true, skipped: 'timeout' };
@@ -45,32 +45,51 @@ function nodeCheckFile(file) {
   return { ok: false, error: parseNodeCheck(r.stderr, file) };
 }
 
-function nodeCheckText(text, { module }) {
+/**
+ * node --check on text, written to a temp file with an explicit module kind (.cjs or .mjs).
+ * Never .js: with module auto-detection (Node 22+) `node --check some.js` exits 0 for files it
+ * classifies as ESM even when they contain syntax errors or JSX, so a .js check proves nothing.
+ */
+function nodeCheckText(text, kind) {
   const dir = fsx.tmpDir();
-  const tmp = path.join(dir, `chk-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.${module ? 'mjs' : 'js'}`);
+  const tmp = path.join(dir, `chk-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.${kind === 'module' ? 'mjs' : 'cjs'}`);
   try { fs.writeFileSync(tmp, text); return nodeCheckFile(tmp); }
   finally { try { fs.unlinkSync(tmp); } catch { /* ignore */ } }
 }
 
+/** Ask node whether the text parses in any of the allowed module kinds. Returns 'ok' | 'fail' | 'skipped'. */
+function nodeConfirm(text, module) {
+  const kinds = module === true ? ['module'] : module === false ? ['script'] : ['script', 'module'];
+  let verdict = 'fail';
+  for (const k of kinds) {
+    const r = nodeCheckText(text, k);
+    if (r.skipped) return 'skipped';
+    if (r.ok) return 'ok';
+  }
+  return verdict;
+}
+
 /**
  * Check JavaScript source. Fast path: acorn in-process (no spawn, exact line/col). If acorn
- * rejects the code, node --check confirms (acorn may trail brand-new syntax); JSX/Flow-looking
- * files are skipped instead of reported, since neither parser can judge them.
- * module: true (.mjs / <script type=module>), false (.cjs), undefined (detect).
+ * rejects the code, node confirms in strict .cjs/.mjs form (acorn may trail brand-new syntax);
+ * JSX/Flow-looking files are skipped instead of reported, since neither parser can judge them.
+ * module: true (.mjs / <script type=module>), false (.cjs / classic <script>), undefined (.js: either).
  */
-function checkJSSource(text, { module, label, file } = {}) {
+function checkJSSource(text, { module, label } = {}) {
   if (jsAst) {
     const a = jsAst.checkJS(text, { module });
     if (a.ok) return { ok: true, checker: 'acorn', errors: [] };
-    const confirm = file && /\.(m?js|cjs)$/i.test(file) ? nodeCheckFile(file) : nodeCheckText(text, { module: module === true || a.sourceType === 'module' });
-    if (confirm.ok && !confirm.skipped) return { ok: true, checker: 'node --check (acorn disagreed)', errors: [] };
+    const confirm = nodeConfirm(text, module);
+    if (confirm === 'ok') return { ok: true, checker: 'node --check (acorn disagreed)', errors: [] };
     if (JSX_LIKE.test(text)) return { ok: true, checker: 'acorn', skipped: 'looks like JSX or Flow, which plain JavaScript parsers cannot check', errors: [] };
     return { ok: false, checker: 'acorn', errors: [{ ...a.error, label }] };
   }
-  const r = file ? nodeCheckFile(file) : nodeCheckText(text, { module: !!module });
-  if (r.skipped) return { ok: true, checker: 'node --check', skipped: r.skipped, errors: [] };
-  if (r.ok) return { ok: true, checker: 'node --check', errors: [] };
-  return { ok: false, checker: 'node --check', errors: [{ ...r.error, label }] };
+  const confirm = nodeConfirm(text, module);
+  if (confirm === 'skipped') return { ok: true, checker: 'node --check', skipped: 'could not run node --check', errors: [] };
+  if (confirm === 'ok') return { ok: true, checker: 'node --check', errors: [] };
+  if (JSX_LIKE.test(text)) return { ok: true, checker: 'node --check', skipped: 'looks like JSX or Flow, which plain JavaScript parsers cannot check', errors: [] };
+  const r = nodeCheckText(text, module === true ? 'module' : 'script');
+  return { ok: false, checker: 'node --check', errors: [{ ...(r.error || { line: null, col: null, message: 'syntax error' }), label }] };
 }
 
 function checkJSText(text, { module = false, label = 'inline script' } = {}) {
@@ -80,7 +99,7 @@ function checkJSText(text, { module = false, label = 'inline script' } = {}) {
 function checkJSFile(file) {
   const text = fs.readFileSync(file, 'utf8');
   const module = /\.mjs$/i.test(file) ? true : /\.cjs$/i.test(file) ? false : undefined;
-  return checkJSSource(text, { module, file });
+  return checkJSSource(text, { module });
 }
 
 // ---------- JSON (with precise error location) ----------

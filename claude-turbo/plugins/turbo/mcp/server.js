@@ -149,6 +149,9 @@ function parserLabel(o) {
 // Tools
 
 const ENTRY_NAMES = /^(index|main|app|server|cli|start|bootstrap|entry|game|engine|core|package\.json|readme(\.md)?|claude\.md|makefile|dockerfile|pyproject\.toml|go\.mod|cargo\.toml|setup\.py|manage\.py|__init__\.py|__main__\.py)(\.|$)/i;
+// repo_map shows a file's main symbols (functions, classes, data, boot code); scalar state and
+// accessors belong in file_outline, not in the one-screen map.
+const MAP_SKIP_KINDS = new Set(['state', 'const', 'getter', 'setter', 'static']);
 
 function toolRepoMap(a) {
   const root = projectRoot(a.root);
@@ -211,11 +214,12 @@ function toolRepoMap(a) {
         if (l === 'html') {
           const scripts = syms.filter((s) => s.kind === 'script').length;
           const ids = syms.filter((s) => s.kind === 'id').length;
-          const code = syms.filter((s) => !['script', 'style', 'id'].includes(s.kind));
+          const code = syms.filter((s) => !['script', 'style', 'id'].includes(s.kind) && !MAP_SKIP_KINDS.has(s.kind));
           line += `: ${scripts} script block${scripts === 1 ? '' : 's'}, ${ids} ids` + (code.length ? `; js: ${code.slice(0, perFileSyms).map((s) => fmtSym(s, false)).join(', ')}${code.length > perFileSyms ? ` … +${code.length - perFileSyms}` : ''}` : '');
         } else if (syms.length) {
-          const pick = syms.filter((s) => !['key', 'value'].includes(s.kind) || l === 'json').slice(0, perFileSyms);
-          line += `: ${pick.map((s) => fmtSym(s, false)).join(', ')}${syms.length > pick.length ? ` … +${syms.length - pick.length}` : ''}`;
+          const main = syms.filter((s) => (!['key', 'value'].includes(s.kind) || l === 'json') && !MAP_SKIP_KINDS.has(s.kind));
+          const pick = main.slice(0, perFileSyms);
+          line += `: ${pick.map((s) => fmtSym(s, false)).join(', ')}${main.length > pick.length ? ` … +${main.length - pick.length}` : ''}`;
         }
       } catch (e) {
         line += `) [${e.message}]`;

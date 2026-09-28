@@ -33,15 +33,15 @@ function outlineTS(text, file, { root, maxSymbols = 600 } = {}) {
   const sigOf = (n) => params(n);
   const isStatic = (n) => !!(ts.getCombinedModifierFlags(n) & ts.ModifierFlags.Static);
   const isAsync = (n) => !!(ts.getCombinedModifierFlags(n) & ts.ModifierFlags.Async);
-  const modsOf = (n, ...extra) => [...extra, isStatic(n) ? 'static' : '', isAsync(n) ? 'async' : '', n.type ? `: ${n.type.getText(sf).slice(0, 30)}` : ''].filter(Boolean).join(' ');
+  const modsOf = (n, ...extra) => [...extra, isStatic(n) ? 'static' : '', isAsync(n) ? 'async' : '', n.type ? `-> ${n.type.getText(sf).slice(0, 30)}` : ''].filter(Boolean).join(' ');
   let imports = 0;
 
   function members(node, owner) {
     for (const m of node.members || []) {
+      if (ts.isConstructorDeclaration(m)) { push({ name: `${owner}.constructor`, kind: 'constructor', line: line(m.getStart(sf)), endLine: line(m.end), sig: sigOf(m), mods: '' }); continue; }
       const nm = nameOf(m);
       if (!nm) continue;
       if (ts.isMethodDeclaration(m) || ts.isMethodSignature(m)) push({ name: `${owner}.${nm}`, kind: 'method', line: line(m.getStart(sf)), endLine: line(m.end), sig: sigOf(m), mods: modsOf(m) });
-      else if (ts.isConstructorDeclaration(m)) push({ name: `${owner}.constructor`, kind: 'constructor', line: line(m.getStart(sf)), endLine: line(m.end), sig: sigOf(m), mods: '' });
       else if (ts.isGetAccessor(m) || ts.isSetAccessor(m)) push({ name: `${owner}.${nm}`, kind: ts.isGetAccessor(m) ? 'getter' : 'setter', line: line(m.getStart(sf)), endLine: line(m.end), sig: '' });
       else if (ts.isPropertyDeclaration(m) && m.initializer && (ts.isArrowFunction(m.initializer) || ts.isFunctionExpression(m.initializer))) push({ name: `${owner}.${nm}`, kind: 'method', line: line(m.getStart(sf)), endLine: line(m.end), sig: sigOf(m.initializer), mods: modsOf(m.initializer, isStatic(m) ? 'static' : '') });
     }

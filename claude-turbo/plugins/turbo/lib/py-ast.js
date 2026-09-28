@@ -45,8 +45,9 @@ for p in sys.argv[1:]:
                 syms.append({"name": name, "kind": "method" if ctx else "function", "line": n.lineno, "endLine": end, "sig": sig(n), "mods": " ".join(mods)})
             elif isinstance(n, ast.ClassDef):
                 bases = [unparse(b) for b in n.bases]
-                syms.append({"name": n.name, "kind": "class", "line": n.lineno, "endLine": end, "sig": ("(" + ", ".join(bases) + ")") if bases else ""})
-                walk(n.body, n.name, depth + 1)
+                cname = (ctx + "." + n.name) if ctx else n.name
+                syms.append({"name": cname, "kind": "class", "line": n.lineno, "endLine": end, "sig": ("(" + ", ".join(bases) + ")") if bases else ""})
+                walk(n.body, cname, depth + 1)
             elif depth == 0 and isinstance(n, (ast.Assign, ast.AnnAssign)):
                 targets = n.targets if isinstance(n, ast.Assign) else [n.target]
                 v = n.value
