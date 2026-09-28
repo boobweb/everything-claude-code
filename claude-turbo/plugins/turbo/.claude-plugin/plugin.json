@@ -1,0 +1,8 @@
+{
+  "name": "turbo",
+  "version": "1.0.0",
+  "description": "Makes Claude Code faster, smarter and safer in any project: an indexed code MCP server (repo map, file outlines, symbol jumps, folded reads of huge files, ripgrep search, syntax checks), hooks that verify every edit and re-verify at stop, guards against large-file rewrites and destructive commands, a session briefing, plus skills and subagents for orienting, surgical patching, debugging, verification, smoke testing and handoff.",
+  "author": { "name": "Brendan Bunzel" },
+  "license": "MIT",
+  "keywords": ["productivity", "large-files", "hooks", "mcp", "syntax-check", "verification", "safety", "windows"]
+}
