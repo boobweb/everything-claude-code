@@ -227,8 +227,12 @@ function isUnexpanded(t) {
   return /[$%`()]/.test(e) || e === '{}';
 }
 
-/** Drop sudo/env/nice/timeout/xargs-style prefixes (with their own options) so the real command is toks[0]. */
-function stripPrefixes(toks) {
+/**
+ * Drop sudo/env/nice/timeout/xargs-style prefixes (with their own options) so the real command is toks[0].
+ * Options that change what runs are honored, not dropped: `env -C dir` / `--chdir` and `sudo -D dir` move the
+ * tracked working directory (when ctx is given), `env -S 'cmd args'` / `--split-string` is split into tokens.
+ */
+function stripPrefixes(toks, ctx, mode) {
   toks = toks.slice();
   for (let guard = 0; guard < 8 && toks.length; guard++) {
     const w = cmdName(toks[0]);
@@ -238,6 +242,17 @@ function stripPrefixes(toks) {
     while (toks.length) {
       const t = toks[0];
       if (t === '--') { toks.shift(); break; }
+      if ((w === 'env' || w === 'sudo') && (/^-[a-zA-Z]*[CD]$/.test(t) || /^--chdir(=|$)/.test(t))) {
+        const dir = t.includes('=') ? t.slice(t.indexOf('=') + 1) : toks[1];
+        toks.splice(0, t.includes('=') ? 1 : 2);
+        if (ctx) followCd(['cd', dir === undefined ? '-' : dir], ctx);
+        continue;
+      }
+      if (w === 'env' && (/^-[a-zA-Z]*S$/.test(t) || /^--split-string(=|$)/.test(t))) {
+        const str = t.includes('=') ? t.slice(t.indexOf('=') + 1) : toks[1];
+        toks.splice(0, t.includes('=') ? 1 : 2, ...tokens(str || '', mode));
+        continue;
+      }
       if (/^-[a-zA-Z]$/.test(t) && vals.includes(t[1])) { toks.splice(0, 2); continue; }
       if (/^-/.test(t)) { toks.shift(); continue; }
       if (w === 'timeout' && /^\d+(\.\d+)?[smhd]?$/.test(t)) { toks.shift(); continue; }
@@ -247,6 +262,11 @@ function stripPrefixes(toks) {
   }
   return toks;
 }
+
+// git accepts options before the subcommand (`git -C dir push --force`, `git --no-pager reset --hard`); the pattern rules
+// expect the subcommand right after `git`, so these are folded away before matching.
+const GIT_GLOBAL_OPTS = /\bgit\s+(?:(?:-C\s+\S+|-c\s+\S+|--(?:git-dir|work-tree|namespace|super-prefix|config-env|exec-path)(?:=\S+|\s+\S+)|--no-pager|-p|--paginate|-P|--bare|--no-replace-objects|--no-lazy-fetch|--no-optional-locks|--no-advice|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs)\s+)+/g;
+function foldGitOptions(text) { return text.replace(GIT_GLOBAL_OPTS, 'git '); }
 
 function classifyTarget(raw, ctx) {
   let t = raw.trim();
@@ -271,6 +291,8 @@ function classifyTarget(raw, ctx) {
   } catch { return 'ask'; }
   const verdict = (p, b) => {
     const r = norm(p);
+    // the resolved path is judged like a typed one: `cd / && rm -rf etc` or `env -C / rm -rf etc` lands on /etc
+    if (SYSTEM_DIRS.some((re) => re.test(p)) || USER_HOME_ROOT.test(p)) return 'deny';
     if (r === b.home || r === norm(path.parse(p).root) || b.home.startsWith(r + sep)) return 'deny';
     if (b.root.startsWith(r + sep)) return 'deny'; // a parent of the project
     if (r === b.root) return 'ask';
@@ -376,7 +398,7 @@ function deleteGuard(cmd, ctx, depth = 0) {
     const seg = segs[i];
     if (seg.ctl === 'open') { saved.push(ctx.vcwd); continue; }
     if (seg.ctl === 'close') { if (saved.length) ctx.vcwd = saved.pop(); continue; }
-    const toks = stripPrefixes(tokens(seg.text, mode));
+    const toks = stripPrefixes(tokens(seg.text, mode), ctx, mode);
     if (!toks.length) continue;
     const name = cmdName(toks[0]);
     if (CD_CMDS.test(name)) { followCd(toks, ctx); continue; }
@@ -499,8 +521,8 @@ function truncateGuard(cmd, ctx, mode) {
 
 function evaluate(cmd, ctx, depth = 0) {
   const mode = shellMode(cmd, ctx.shell);
-  const noComments = scrub(cmd, mode);
-  const blanked = scrub(cmd, mode, { blankQuotes: true });
+  const noComments = foldGitOptions(scrub(cmd, mode));
+  const blanked = foldGitOptions(scrub(cmd, mode, { blankQuotes: true }));
   for (const d of DENY) if (d.re.test(blanked)) return { decision: 'deny', why: d.why };
   const del = deleteGuard(noComments, ctx, depth);
   if (del && del.decision === 'deny') return del;
@@ -512,4 +534,4 @@ function evaluate(cmd, ctx, depth = 0) {
   return null;
 }
 
-module.exports = { evaluate, deleteGuard, classifyTarget, splitSegments, tokens, innerCommands, truncateGuard, scrub, shellMode, cmdName, stripPrefixes, DENY, ASK };
+module.exports = { evaluate, deleteGuard, classifyTarget, splitSegments, tokens, innerCommands, truncateGuard, scrub, shellMode, cmdName, stripPrefixes, foldGitOptions, DENY, ASK };

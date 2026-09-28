@@ -133,6 +133,27 @@ function run(check, { PLUGIN, DATA }) {
     const u3 = cli(['--undo', a2j.quarantine]);
     check('tidy --undo: restores from moves.log when manifest.json lost the moves', u3.status === 0 && fs.existsSync(path.join(root2, 'Downloads', 'jquery.min.js')) && fs.existsSync(path.join(root2, 'notes', 'empty.txt')), u3.stdout + u3.stderr);
   }
+  // Codex review round: a slug folder shared by a deleted and a live project; --undo through a planted symlink; restore destinations
+  const shared = path.join(claudeDir, 'projects', '-shared-slug');
+  fs.mkdirSync(shared, { recursive: true });
+  const gone2 = process.platform === 'win32' ? 'C:\\also-gone\\xyz' : '/also-gone/xyz';
+  fs.writeFileSync(path.join(shared, 'orphan.jsonl'), `${JSON.stringify({ type: 'user', cwd: gone2 })}\n`);
+  fs.writeFileSync(path.join(shared, 'live.jsonl'), `${JSON.stringify({ type: 'user', cwd: root2 })}\n`);
+  const ai3 = tidy.findAiLeftovers({ ...opts }, [root]);
+  const sharedEntry = ai3.find((a) => a.abs === shared);
+  check('tidy: in a slug folder shared by a deleted and a live project only the orphaned transcripts are candidates, never the folder', sharedEntry && Array.isArray(sharedEntry.files) && sharedEntry.files.length === 1 && /orphan\.jsonl$/.test(sharedEntry.files[0]) && tidy.transcriptCwds(shared).length === 2 && ai3.some((a) => a.abs === orphan && !a.files), JSON.stringify(sharedEntry));
+  const q3 = path.join(DATA, 'tidy-fake-quarantine-3'); fs.rmSync(q3, { recursive: true, force: true }); fs.mkdirSync(q3, { recursive: true });
+  const victimDir = path.join(DATA, 'tidy-victim-dir'); fs.rmSync(victimDir, { recursive: true, force: true }); fs.mkdirSync(victimDir, { recursive: true }); fs.writeFileSync(path.join(victimDir, 'victim.txt'), 'victim');
+  let linked3 = false; try { fs.symlinkSync(victimDir, path.join(q3, 'link'), 'dir'); linked3 = true; } catch { /* no symlink privilege */ }
+  if (linked3) {
+    fs.writeFileSync(path.join(q3, 'manifest.json'), JSON.stringify({ roots: [DATA], claudeDir, moved: [{ from: path.join(DATA, 'tidy-stolen3.txt'), to: path.join(q3, 'link', 'victim.txt'), category: 'junk' }], removedEmptyDirs: [] }));
+    const u3 = cli(['--undo', q3]);
+    check('tidy --undo: a manifest entry reaching through a symlink planted in the quarantine is refused', u3.status === 0 && fs.existsSync(path.join(victimDir, 'victim.txt')) && !fs.existsSync(path.join(DATA, 'tidy-stolen3.txt')) && /refused/.test(u3.stdout), u3.stdout + u3.stderr);
+  }
+  const q4 = path.join(DATA, 'tidy-fake-quarantine-4'); fs.rmSync(q4, { recursive: true, force: true }); fs.mkdirSync(q4, { recursive: true }); fs.writeFileSync(path.join(q4, 'x.txt'), 'x');
+  fs.writeFileSync(path.join(q4, 'manifest.json'), JSON.stringify({ roots: [root], claudeDir, moved: [{ from: path.join(os.tmpdir(), `turbo-outside-target-${process.pid}.txt`), to: path.join(q4, 'x.txt'), category: 'junk' }], removedEmptyDirs: [] }));
+  const u4 = cli(['--undo', q4]);
+  check('tidy --undo: a restore destination outside the scanned roots and the Claude directory is refused', u4.status === 0 && fs.existsSync(path.join(q4, 'x.txt')) && /refused/.test(u4.stdout), u4.stdout + u4.stderr);
   void os;
 }
 

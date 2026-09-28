@@ -414,8 +414,13 @@ function toolSearch(a) {
     if (a.exclude) for (const g of fsx.expandBraces(String(a.exclude))) args.push('-g', `!${g}`);
     args.push('-e', pattern, target);
     const r = spawnSync(rg, args, { encoding: 'utf8', timeout: 20000, windowsHide: true, maxBuffer: 96 * 1024 * 1024 });
+    // exit 0 = matches, 1 = no matches, 2 = error. An error with no output (bad regex or glob, unreadable target) must not
+    // be reported as "0 matches"; an error with output (an unreadable file among many) still yields the matches it found.
     if (r.error) { engine = 'js'; }
-    else {
+    else if (r.status !== 0 && r.status !== 1 && !(r.stdout || '').trim()) {
+      const msg = ((r.stderr || '').split('\n').map((l) => l.trim()).find(Boolean) || `ripgrep exited with status ${r.status}`).replace(/^rg:\s*/, '');
+      throw new Error(`search failed: ${msg}`);
+    } else {
       const seen = new Set();
       const singleFile = fsx.isFile(target);
       for (const line of (r.stdout || '').split('\n')) {

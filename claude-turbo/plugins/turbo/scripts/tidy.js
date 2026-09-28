@@ -295,8 +295,19 @@ function findAiLeftovers(opts, roots) {
     for (const e of fs.readdirSync(projects, { withFileTypes: true })) {
       if (!e.isDirectory()) continue;
       const dir = path.join(projects, e.name);
-      const cwd = transcriptCwd(dir);
-      if (cwd && !fs.existsSync(cwd)) out.push({ abs: dir, size: dirSize(dir), why: `session transcripts of a project folder that no longer exists (${cwd})` });
+      // several project paths can share one slug (separators and hyphens both become '-'), so every transcript's own
+      // cwd is checked: the folder goes only when all of them point at deleted folders; otherwise only the orphans do
+      const recs = transcriptCwds(dir);
+      const known = recs.filter((r) => r.cwd);
+      const orphans = known.filter((r) => !fs.existsSync(r.cwd));
+      if (!orphans.length) continue;
+      const gone = [...new Set(orphans.map((r) => r.cwd))].join(', ');
+      if (known.length === recs.length && orphans.length === recs.length) out.push({ abs: dir, size: dirSize(dir), why: `session transcripts of a project folder that no longer exists (${gone})` });
+      else {
+        const live = [...new Set(known.filter((r) => fs.existsSync(r.cwd)).map((r) => r.cwd))];
+        const files = orphans.map((r) => r.file);
+        out.push({ abs: dir, files, size: files.reduce((n, f) => { try { return n + fs.statSync(f).size; } catch { return n; } }, 0), why: `${files.length} transcript(s) of a deleted project (${gone}) in a folder shared with ${live.length ? `a live project (${live.join(', ')})` : 'transcripts whose project is unknown'}; only those files move` });
+      }
     }
   } catch { /* no projects dir */ }
   // old CLI logs and caches
@@ -359,19 +370,43 @@ function dirSignature(dir) {
 }
 
 /** The cwd recorded in the first transcript lines of a ~/.claude/projects/<slug>/ folder, or null. */
-function transcriptCwd(dir) {
-  let names;
-  try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.jsonl')).slice(0, 5); } catch { return null; }
-  for (const n of names) {
-    try {
-      const fd = fs.openSync(path.join(dir, n), 'r');
-      let head;
-      try { const buf = Buffer.alloc(256 * 1024); const got = fs.readSync(fd, buf, 0, buf.length, 0); head = buf.subarray(0, got).toString('utf8'); } finally { fs.closeSync(fd); }
-      const m = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(head);
-      if (m) { try { return JSON.parse(`"${m[1]}"`); } catch { return m[1]; } }
-    } catch { /* next file */ }
-  }
+/** The cwd a transcript records (from its first 256 KB), or null. */
+function transcriptFileCwd(file) {
+  try {
+    const fd = fs.openSync(file, 'r');
+    let head;
+    try { const buf = Buffer.alloc(256 * 1024); const got = fs.readSync(fd, buf, 0, buf.length, 0); head = buf.subarray(0, got).toString('utf8'); } finally { fs.closeSync(fd); }
+    const m = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(head);
+    if (m) { try { return JSON.parse(`"${m[1]}"`); } catch { return m[1]; } }
+  } catch { /* unreadable */ }
   return null;
+}
+
+/** Every transcript in a project folder with the cwd it records: [{ file, cwd|null }]. */
+function transcriptCwds(dir) {
+  let names;
+  try { names = fs.readdirSync(dir).filter((n) => n.endsWith('.jsonl')).slice(0, 500); } catch { return []; }
+  return names.map((n) => { const file = path.join(dir, n); return { file, cwd: transcriptFileCwd(file) }; });
+}
+
+/** The first recorded cwd in a project folder, or null (kept for callers that only need one). */
+function transcriptCwd(dir) {
+  const hit = transcriptCwds(dir).find((r) => r.cwd);
+  return hit ? hit.cwd : null;
+}
+
+/** Real path of p even when its leaf does not exist: the deepest existing ancestor is resolved. */
+function realDeep(p) {
+  let cur = path.resolve(p);
+  const tail = [];
+  for (let i = 0; i < 64; i++) {
+    try { const real = fs.realpathSync.native(cur); return tail.length ? path.join(real, ...[...tail].reverse()) : real; } catch { /* keep walking up */ }
+    const parent = path.dirname(cur);
+    if (parent === cur) return path.resolve(p);
+    tail.push(path.basename(cur));
+    cur = parent;
+  }
+  return path.resolve(p);
 }
 
 // ---------------------------------------------------------------------------
@@ -416,7 +451,8 @@ function apply(report, opts, log) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const qRoot = opts.quarantine ? path.resolve(opts.quarantine) : path.join(report.roots[0], '_turbo-quarantine', stamp);
   fs.mkdirSync(qRoot, { recursive: true });
-  const manifest = { createdAt: new Date().toISOString(), roots: report.roots, moved: [], removedEmptyDirs: [], errors: [] };
+  const claudeDir = opts.claudeDir ? path.resolve(opts.claudeDir) : path.join(os.homedir(), '.claude');
+  const manifest = { createdAt: new Date().toISOString(), roots: report.roots, claudeDir, moved: [], removedEmptyDirs: [], errors: [] };
   const manifestPath = path.join(qRoot, 'manifest.json');
   const logPath = path.join(qRoot, 'moves.log'); // one JSON line per move, appended before the manifest is rewritten: --undo reads both
   const save = () => fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
@@ -445,6 +481,7 @@ function apply(report, opts, log) {
   }
   if (cats.has('ai')) for (const a of report.ai) {
     if (a.filesOnly) { try { for (const f of fs.readdirSync(a.abs)) { const p = path.join(a.abs, f); try { const s = fs.statSync(p); if (s.isFile() && s.mtimeMs < a.cutoff) move(p, 'ai'); } catch { /* ignore */ } } } catch { /* ignore */ } }
+    else if (a.files) { for (const f of a.files) move(f, 'ai'); }
     else { move(a.abs, 'ai'); for (const x of a.extra || []) move(x, 'ai'); }
   }
   if (cats.has('heavy')) for (const h of report.heavy) move(h.abs, 'heavy');
@@ -469,11 +506,23 @@ function undo(qDir, log) {
     }
   } catch { /* no log */ }
   const inside = (p, base) => { const r = path.relative(base, p); return r !== '' && !r.startsWith('..') && !path.isAbsolute(r); };
+  const isLink = (p) => { try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; } };
+  // where a restore may land: the roots the run scanned and the Claude directory it inspected (both as recorded)
+  const qReal = realDeep(q);
+  const homes = [...(Array.isArray(m.roots) ? m.roots : []), m.claudeDir || path.join(os.homedir(), '.claude')].filter((r) => typeof r === 'string').map(realDeep);
   let restored = 0, skipped = 0;
-  for (const d of [...m.removedEmptyDirs].sort((a, b) => a.length - b.length)) { try { fs.mkdirSync(d, { recursive: true }); restored++; } catch { skipped++; } }
+  for (const d of [...m.removedEmptyDirs].sort((a, b) => a.length - b.length)) {
+    if (typeof d !== 'string' || !homes.some((h) => inside(realDeep(d), h))) { skipped++; continue; }
+    try { fs.mkdirSync(d, { recursive: true }); restored++; } catch { skipped++; }
+  }
   for (const it of m.moved.slice().reverse()) {
-    // only a file that sits in this quarantine folder may be moved, and only to a place outside it: a tampered manifest cannot turn --undo into an arbitrary move
-    if (typeof it.from !== 'string' || typeof it.to !== 'string' || !inside(path.resolve(it.to), q) || inside(path.resolve(it.from), q) || path.resolve(it.from) === q) { skipped++; log(`refused: ${it.to} -> ${it.from} is not a quarantine move`); continue; }
+    // Only a real file inside this quarantine folder may move, and only back under a scanned root or the Claude directory:
+    // paths are judged after symlink resolution, so a link planted inside the quarantine cannot reach a victim elsewhere.
+    const ok = typeof it.from === 'string' && typeof it.to === 'string'
+      && inside(path.resolve(it.to), q) && inside(realDeep(it.to), qReal) && !isLink(it.to)
+      && !inside(path.resolve(it.from), q) && path.resolve(it.from) !== q && !inside(realDeep(it.from), qReal)
+      && homes.some((h) => inside(realDeep(it.from), h));
+    if (!ok) { skipped++; log(`refused: ${it.to} -> ${it.from} is not a quarantine move`); continue; }
     if (fs.existsSync(it.from)) { skipped++; continue; }
     try { fs.mkdirSync(path.dirname(it.from), { recursive: true }); fs.renameSync(it.to, it.from); restored++; }
     catch (e) { try { fs.cpSync(it.to, it.from, { recursive: true }); fs.rmSync(it.to, { recursive: true, force: true }); restored++; } catch (e2) { skipped++; log(`could not restore ${it.from}: ${e2.message}`); void e; } }
@@ -562,4 +611,4 @@ if (require.main === module) {
   try { main(); } catch (e) { console.error(`tidy failed: ${e && e.stack || e}`); process.exit(1); }
 }
 
-module.exports = { parseArgs, scan, normalizeRoots, findDuplicates, findJunk, findArchives, findAiLeftovers, buildReport, printReport, apply, undo, transcriptCwd, human };
+module.exports = { parseArgs, scan, normalizeRoots, findDuplicates, findJunk, findArchives, findAiLeftovers, buildReport, printReport, apply, undo, transcriptCwd, transcriptCwds, human };

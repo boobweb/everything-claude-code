@@ -147,6 +147,9 @@ function run(check, { PLUGIN, FIX }) {
     // 17. a shell redirect / truncate over a large existing file asks (like the Write guard); small or new files pass
     ['echo "<html></html>" > index.html', 'ask'], [': > index.html', 'ask'], ['truncate -s 0 index.html', 'ask'], ['cp /dev/null index.html', 'ask'], ['Set-Content -Path index.html -Value x', 'ask'],
     ['echo x > new-notes.txt', null], ['echo x >> index.html', null], ['cmd 2> index.html', null], ['Set-Content index.html -Value x -Append', null], ['cat index.html > /dev/null', null],
+    // Codex review round: env/sudo options that change what runs, and git global options before the subcommand
+    ['env -C / rm -rf etc', 'deny'], ["env -S 'rm -rf /'", 'deny'], ['env --chdir=/ rm -rf etc', 'deny'], ['env -iS "rm -rf ~"', 'deny'], ['sudo -D / rm -rf etc', 'deny'], ['env FOO=1 rm -rf dist', null], ['env -C src rm -rf ../dist', null],
+    ['git -C repo push --force', 'ask'], ['git --no-pager reset --hard', 'ask'], ['git -c color.ui=false clean -fd', 'ask'], ['git --git-dir=.git checkout -- .', 'ask'], ['git -C ../other status', null], ['git -c core.pager=cat log', null],
     // everyday commands stay silent
     ['rm -rf dist', null], ['rm -rf node_modules && npm i', null], ['ls -la | grep x', null], ['npm test', null], ['rm -rf dist 2>&1 | tee log', null], ['sleep 1 & rm -rf ~', 'deny'], ['find . -name "*.log" -delete', 'ask'],
   ];
@@ -194,7 +197,18 @@ function run(check, { PLUGIN, FIX }) {
   check('fsx: without CLAUDE_PLUGIN_DATA the data dir is a private per-user location, never a shared temp path', (() => { const saved = process.env.CLAUDE_PLUGIN_DATA; delete process.env.CLAUDE_PLUGIN_DATA; try { const d = fsx.dataDir(); return d !== path.join(os.tmpdir(), 'claude-turbo') && (d.startsWith(os.homedir()) || (process.env.XDG_CACHE_HOME && d.startsWith(process.env.XDG_CACHE_HOME)) || (process.env.LOCALAPPDATA && d.startsWith(process.env.LOCALAPPDATA)) || /claude-turbo-/.test(d)); } finally { if (saved !== undefined) process.env.CLAUDE_PLUGIN_DATA = saved; } })(), fsx.dataDir());
   // 15. the installer's user-scope allowlist holds read-only checks only, and requiring it installs nothing
   const installer = require(path.join(PLUGIN, '..', '..', 'install.js'));
-  check('install: no test/build runner (npm test, npm run build, pytest) is allowed at user scope; node --check and py_compile are', !installer.ALLOW_RULES.some((r) => /npm (test|run)|pytest/.test(r)) && installer.ALLOW_RULES.some((r) => r === 'Bash(node --check *)') && installer.ALLOW_RULES.some((r) => r === 'PowerShell(python -m py_compile *)') && installer.PROJECT_HINT.length >= 4, installer.ALLOW_RULES.join(','));
+  check('install: no shell command at all is allowed at user scope (node --check can preload code); the MCP tools are, and the ask rules stay', !installer.ALLOW_RULES.some((r) => /^(Bash|PowerShell)\(/.test(r)) && installer.ALLOW_RULES.includes('mcp__plugin_turbo_code__syntax_check') && installer.ASK_RULES.includes('Bash(git push --force *)') && installer.CHECK_CMDS.length === 0, installer.ALLOW_RULES.join(','));
+  {
+    const src = path.join(os.tmpdir(), `turbo-sync-src-${process.pid}`), dest = path.join(os.tmpdir(), `turbo-sync-dest-${process.pid}`);
+    fs.rmSync(src, { recursive: true, force: true }); fs.rmSync(dest, { recursive: true, force: true });
+    fs.mkdirSync(path.join(src, 'skills', 'keep'), { recursive: true }); fs.writeFileSync(path.join(src, 'skills', 'keep', 'SKILL.md'), 'new');
+    fs.mkdirSync(path.join(src, 'node_modules', 'x'), { recursive: true }); fs.writeFileSync(path.join(src, 'node_modules', 'x', 'i.js'), '1');
+    fs.mkdirSync(path.join(dest, 'skills', 'removed'), { recursive: true }); fs.writeFileSync(path.join(dest, 'skills', 'removed', 'SKILL.md'), 'stale');
+    fs.mkdirSync(path.join(dest, 'skills', 'keep'), { recursive: true }); fs.writeFileSync(path.join(dest, 'skills', 'keep', 'SKILL.md'), 'old');
+    installer.syncTree(src, dest, installer.KIT_FILTER);
+    check('install: updating replaces the kit (a removed skill goes away, changed files update, node_modules is never copied)', !fs.existsSync(path.join(dest, 'skills', 'removed')) && fs.readFileSync(path.join(dest, 'skills', 'keep', 'SKILL.md'), 'utf8') === 'new' && !fs.existsSync(path.join(dest, 'node_modules')), JSON.stringify(fs.readdirSync(path.join(dest, 'skills'))));
+    fs.rmSync(src, { recursive: true, force: true }); fs.rmSync(dest, { recursive: true, force: true });
+  }
   // 21. search regex filter and output cap
   const server = require(path.join(PLUGIN, 'mcp', 'server.js'));
   check('server: unsafeRegex rejects (a|aa)+$, (a?){30}a{30}, (a+)+ and [a-z]+* ; accepts ordinary patterns', server.unsafeRegex('(a|aa)+$') && server.unsafeRegex('(a?){30}a{30}') && server.unsafeRegex('(a+)+') && server.unsafeRegex('[a-z]+*') && !server.unsafeRegex('def \\w+\\(') && !server.unsafeRegex('(foo|bar)') && !server.unsafeRegex('^import .* from') && !server.unsafeRegex('\\bTODO\\b'));

@@ -6,6 +6,7 @@
 //   node tests/run-tests.js --keep     keep the fixture directory afterwards
 
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
@@ -139,6 +140,8 @@ async function testMCP() {
   check('search folds blob lines', /folded/.test(r.text) && r.text.length < 3000, String(r.text.length));
   r = await call(c, 'search', { pattern: 'def \\w+\\(', regex: true, include: '*.py' });
   check('search regex + include glob', /tools\/gen\.py/.test(r.text) && /def make/.test(r.text) && !/index\.html/.test(r.text), r.text);
+  r = await call(c, 'search', { pattern: '[', regex: true });
+  check('search with a malformed regex is an error, never "0 matches"', r.isError && /regex|pattern|search failed|invalid|unterminated/i.test(r.text), r.text);
   r = await call(c, 'search', { pattern: 'zzz_no_such_text_zzz' });
   check('search no matches', /0 matches/.test(r.text) && /no matches/.test(r.text), r.text);
 
@@ -290,6 +293,25 @@ function testHooks() {
   check('stats.js --json emits the raw record', statsJson.status === 0 && JSON.parse(statsJson.stdout).stats.sessions >= 1, statsJson.stdout.slice(0, 200));
 }
 
+async function testSmokeServer() {
+  console.log('\n# Smoke static server (path boundary)');
+  const { serveStatic } = require(path.join(SCRIPTS, 'smoke.js'));
+  const base = path.join(DATA, 'smoke-srv');
+  const site = path.join(base, 'site');
+  fs.mkdirSync(site, { recursive: true }); fs.mkdirSync(path.join(base, 'site-secret'), { recursive: true });
+  fs.writeFileSync(path.join(site, 'index.html'), '<html>ok</html>');
+  fs.writeFileSync(path.join(base, 'site-secret', 'secret.txt'), 'SECRET');
+  const { server, port } = await serveStatic(site, 0);
+  const get = (p) => new Promise((resolve) => { http.get({ host: '127.0.0.1', port, path: p }, (res) => { let body = ''; res.on('data', (c) => { body += c; }); res.on('end', () => resolve({ status: res.statusCode, body })); }).on('error', (e) => resolve({ status: -1, body: String(e) })); });
+  const ok = await get('/index.html');
+  const rootReq = await get('/');
+  const trav = await get('/%2e%2e%2fsite-secret%2fsecret.txt');
+  const trav2 = await get('/..%2fsite-secret%2fsecret.txt');
+  await new Promise((r) => server.close(r));
+  check('smoke server serves files inside the folder', ok.status === 200 && /ok/.test(ok.body) && rootReq.status === 200, JSON.stringify([ok, rootReq]));
+  check('smoke server refuses an encoded traversal into a sibling folder whose name starts with the root name', trav.status === 403 && !/SECRET/.test(trav.body) && trav2.status !== 200 && !/SECRET/.test(trav2.body), JSON.stringify([trav, trav2]));
+}
+
 function testSmoke() {
   console.log('\n# Smoke test (Playwright)');
   const r = spawnSync(process.execPath, [path.join(SCRIPTS, 'smoke.js'), '--dir', FIX, '--wait-hidden', '#loading-overlay', '--click', '#btn-neuro', '--settle', '200', '--screenshot', path.join(DATA, 'shot.png')], { encoding: 'utf8', timeout: 120000, env: { ...process.env, CLAUDE_PLUGIN_DATA: DATA } });
@@ -348,6 +370,7 @@ function testStatic() {
     guards.run(check, { PLUGIN, FIX, DATA });
     tidy.run(check, { PLUGIN, FIX, DATA });
     await testMCP();
+    await testSmokeServer();
     testHooks();
     testSmoke();
     testValidate();

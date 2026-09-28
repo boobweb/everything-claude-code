@@ -31,10 +31,12 @@ const STATE_FILE = path.join(CLAUDE_DIR, 'turbo-kit.installed.json');
 // The same rules are emitted for the Bash tool and for the PowerShell tool (Windows without Git
 // Bash routes every shell command through the PowerShell tool, where Bash(...) rules never match).
 const TOOLS = ['repo_map', 'file_outline', 'find_symbol', 'read_range', 'search', 'syntax_check', 'file_stats'];
-// Only read-only checks go on the user-scope allowlist: `npm test`, `npm run build` or `pytest` run whatever
-// a cloned repository's package.json / conftest.py says, so those belong in a project's own .claude/settings.json.
-const CHECK_CMDS = ['node --check *', 'python -m py_compile *', 'py -m py_compile *'];
-const PROJECT_HINT = ['npm test *', 'npm run test *', 'npm run lint *', 'npm run build *', 'pytest *', 'python -m pytest *'];
+// No shell command is allowed at user scope. `npm test`, `npm run build` or `pytest` run whatever a cloned
+// repository says, and even `node --check` is not read-only: `node --check -r ./x.js y.js` executes x.js as a
+// preload (verified on Node 24). Syntax checks go through Turbo's own syntax_check tool, which never executes
+// anything; project-specific runners belong in that project's .claude/settings.json.
+const CHECK_CMDS = [];
+const PROJECT_HINT = ['npm test *', 'npm run test *', 'npm run lint *', 'npm run build *', 'pytest *', 'python -m pytest *', 'node --check *'];
 const RISKY_CMDS = ['git push --force *', 'git push -f *', 'git reset --hard *', 'git clean *'];
 const both = (cmds) => cmds.flatMap((c) => [`Bash(${c})`, `PowerShell(${c})`]);
 const ALLOW_RULES = ['mcp__plugin_turbo_code', ...TOOLS.map((t) => `mcp__plugin_turbo_code__${t}`), ...both(CHECK_CMDS)];
@@ -85,9 +87,30 @@ function copyKit() {
   if (same(src, dest) || inside(dest, src)) { log(`   using kit in place: ${src}`); return src; }
   log(`   copying kit to ${dest}`);
   if (DRY) return dest;
-  fs.mkdirSync(dest, { recursive: true });
-  fs.cpSync(src, dest, { recursive: true, force: true, filter: (p) => !/[\\/](\.git|node_modules|dist|_turbo-quarantine)([\\/]|$)/.test(p) && !/[\\/]evals[\\/]results([\\/]|$)/.test(p) });
+  syncTree(src, dest, KIT_FILTER);
   return dest;
+}
+
+const KIT_FILTER = (p) => !/[\\/](\.git|node_modules|dist|_turbo-quarantine)([\\/]|$)/.test(p) && !/[\\/]evals[\\/]results([\\/]|$)/.test(p);
+
+/**
+ * Make `dest` an exact copy of `src` (minus filtered paths): copy everything over, then remove whatever is
+ * left in `dest` that `src` no longer has. A plain merge would leave skills, agents or hooks that a newer
+ * release removed or renamed in place, and Claude Code auto-discovers them, so they would keep loading.
+ */
+function syncTree(src, dest, filter) {
+  fs.mkdirSync(dest, { recursive: true });
+  fs.cpSync(src, dest, { recursive: true, force: true, filter: (p) => filter(p) });
+  const prune = (rel) => {
+    const here = path.join(dest, rel);
+    for (const e of fs.readdirSync(here, { withFileTypes: true })) {
+      const childRel = path.join(rel, e.name);
+      const inSrc = path.join(src, childRel);
+      if (!fs.existsSync(inSrc) || !filter(inSrc)) { fs.rmSync(path.join(dest, childRel), { recursive: true, force: true }); continue; }
+      if (e.isDirectory()) prune(childRel);
+    }
+  };
+  prune('');
 }
 
 function backupSettings(settingsPath) {
@@ -115,7 +138,7 @@ function mergePermissions(settingsPath) {
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
   }
   log(`   allow += ${added.length} rule(s): ${added.join(', ')}`);
-  log(`   (test/build runners such as ${PROJECT_HINT.slice(0, 3).join(', ')} are deliberately not allowed at user scope; add them to a trusted project's .claude/settings.json)`);
+  log(`   (no shell command is allowed at user scope, not even node --check, which can preload code; add a trusted project's runners to its own .claude/settings.json)`);
   if (askAdded.length) log(`   ask   += ${askAdded.length} rule(s): ${askAdded.join(', ')}`);
   log(`   (backups: settings.json.turbo-original.bak and settings.json.turbo-last.bak next to it)`);
   return { added, askAdded };
@@ -261,4 +284,4 @@ Uninstall:    node "${path.join(kitDir, 'install.js')}" --uninstall
 
 // Run only when executed directly: requiring this file (tests, tooling) must never install anything.
 if (require.main === module) { try { main(); } catch (e) { die(e && e.stack || String(e)); } }
-module.exports = { ALLOW_RULES, ASK_RULES, CHECK_CMDS, PROJECT_HINT };
+module.exports = { ALLOW_RULES, ASK_RULES, CHECK_CMDS, PROJECT_HINT, syncTree, KIT_FILTER };

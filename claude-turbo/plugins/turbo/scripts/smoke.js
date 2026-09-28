@@ -56,8 +56,11 @@ function serveStatic(dir, port) {
       try {
         let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
         if (p.endsWith('/')) p += 'index.html';
-        const abs = path.normalize(path.join(root, p));
-        if (!abs.startsWith(root)) { res.writeHead(403); res.end(); return; }
+        // Stay inside the served folder: after decoding, /%2e%2e%2f.. becomes /../.., and a bare string-prefix test would
+        // accept a sibling folder whose name merely starts with the root's name. path.relative is the real boundary test.
+        const abs = path.resolve(root, '.' + (p.startsWith('/') ? p : '/' + p));
+        const rel = path.relative(root, abs);
+        if (p.includes('\0') || rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) { res.writeHead(403); res.end(); return; }
         fs.stat(abs, (err, st) => {
           if (err || !st.isFile()) { res.writeHead(404); res.end('not found'); return; }
           res.writeHead(200, { 'Content-Type': MIME[path.extname(abs).toLowerCase()] || 'application/octet-stream', 'Content-Length': st.size, 'Cache-Control': 'no-store' });
@@ -189,4 +192,6 @@ async function main() {
   process.exit(report.ok ? 0 : 1);
 }
 
-main().catch((e) => { console.error('smoke failed:', e && e.stack || e); process.exit(1); });
+if (require.main === module) main().catch((e) => { console.error('smoke failed:', e && e.stack || e); process.exit(1); });
+
+module.exports = { serveStatic };
