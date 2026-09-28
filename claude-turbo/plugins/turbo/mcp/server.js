@@ -24,11 +24,8 @@ const DEFAULT_MAX_CHARS = 12000;
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 
 const INSTRUCTIONS = [
-  'Turbo code tools give indexed, bounded access to files and repos.',
-  'Start an unfamiliar project with repo_map (ranked files with their symbols, one screen).',
-  'For any file over ~100KB, or one with embedded base64/minified blobs, use file_outline then read_range on the exact lines instead of reading the whole file; find_symbol returns a named function/class/array body directly; search is ripgrep-style with huge lines folded.',
-  'syntax_check validates JS, HTML inline scripts, JSON, Python, CSS, PowerShell, shell and TypeScript (when installed) after edits; file_stats shows where the bytes are (blob lines, script blocks, line endings).',
-  'Paths may be relative to the project root. Line numbers are 1-based and match the Read/Edit tools.',
+  'Indexed, bounded access to files and repos: repo_map first in an unfamiliar project; for files over ~100KB or with embedded blobs use file_outline, then find_symbol or read_range on exact lines instead of reading the whole file.',
+  'Paths may be relative to the project root; line numbers are 1-based and match Read/Edit.',
 ].join(' ');
 
 // ---------------------------------------------------------------------------
@@ -509,87 +506,89 @@ function toolFileStats(a) {
   return cap(out.join('\n'), a.max_chars);
 }
 
+// Tool descriptions are loaded into every session's context: one sentence each, defaults in the
+// parameter descriptions only where the model must know them.
 const TOOLS = [
   {
     name: 'repo_map',
-    description: 'One-screen map of a project: ranked files with size, line count and their main symbols (functions, classes, data arrays, script blocks). Use first in any unfamiliar repo instead of listing directories and opening files one by one.',
+    description: 'One-screen map of a project: ranked files with size, lines and main symbols. Use first in an unfamiliar repo.',
     inputSchema: { type: 'object', properties: {
-      root: { type: 'string', description: 'Project directory (default: the Claude Code project root)' },
-      filter: { type: 'string', description: 'Only include paths matching this glob or substring, e.g. "src/**", "*.py", "engine"' },
-      max_files: { type: 'integer', description: 'Files to show (default 60, max 400)' },
-      symbols: { type: 'boolean', description: 'Include symbols per file (default true)' },
-      max_chars: { type: 'integer', description: 'Output cap in characters (default 12000)' },
+      root: { type: 'string', description: 'Project directory (default: project root)' },
+      filter: { type: 'string', description: 'Glob or substring, e.g. "src/**", "*.py"' },
+      max_files: { type: 'integer', description: 'Default 60, max 400' },
+      symbols: { type: 'boolean', description: 'Default true' },
+      max_chars: { type: 'integer', description: 'Default 12000' },
     } },
     annotations: { readOnlyHint: true, title: 'Repo map' },
   },
   {
     name: 'file_outline',
-    description: 'Line-numbered outline of one file: functions, classes, methods, top-level data arrays/objects, script/style blocks and element ids (HTML), headings (Markdown), keys (JSON/YAML). Also reports where embedded blobs (base64, minified) live. Use before reading any large file.',
+    description: 'Symbols of one file with exact line ranges (functions, classes, methods, data, script/style blocks and ids in HTML, headings, keys) plus where embedded blobs live. Use before reading a large file.',
     inputSchema: { type: 'object', properties: {
-      path: { type: 'string', description: 'File path (absolute or relative to project root)' },
-      max_symbols: { type: 'integer', description: 'Cap on symbols (default 400)' },
-      include_ids: { type: 'boolean', description: 'HTML: list all element ids (default: first 60)' },
+      path: { type: 'string' },
+      max_symbols: { type: 'integer', description: 'Default 400' },
+      include_ids: { type: 'boolean', description: 'HTML: all element ids (default first 60)' },
       root: { type: 'string' }, max_chars: { type: 'integer' },
     }, required: ['path'] },
     annotations: { readOnlyHint: true, title: 'File outline' },
   },
   {
     name: 'read_range',
-    description: 'Read exact lines of a file with line numbers. Long lines (base64 data URIs, minified code) are folded to a short preview so a 20MB file costs the same as a small one. Line numbers match the Read/Edit tools.',
+    description: 'Numbered lines of a file; long lines (base64, minified) are folded. Line numbers match Read/Edit.',
     inputSchema: { type: 'object', properties: {
       path: { type: 'string' },
-      start_line: { type: 'integer', description: '1-based first line (default 1)' },
-      end_line: { type: 'integer', description: 'Last line inclusive (default start+199)' },
-      max_lines: { type: 'integer', description: 'Hard cap per call (default 400, max 2000)' },
-      fold: { type: 'boolean', description: 'Fold long lines (default true)' },
-      fold_over: { type: 'integer', description: 'Fold lines longer than this many chars (default 400)' },
+      start_line: { type: 'integer', description: '1-based (default 1)' },
+      end_line: { type: 'integer', description: 'Inclusive (default start+199)' },
+      max_lines: { type: 'integer', description: 'Default 400, max 2000' },
+      fold: { type: 'boolean', description: 'Default true' },
+      fold_over: { type: 'integer', description: 'Fold lines longer than this (default 400)' },
       root: { type: 'string' }, max_chars: { type: 'integer' },
     }, required: ['path'] },
     annotations: { readOnlyHint: true, title: 'Read range' },
   },
   {
     name: 'find_symbol',
-    description: 'Jump straight to a function, class, method (Class.method), data array or heading by name and return its body with line numbers. Searches one file, a directory, or the whole project.',
+    description: 'Body of a function, class, method (Class.method), data array or heading by name, with line numbers, from one file, a directory or the whole project.',
     inputSchema: { type: 'object', properties: {
-      name: { type: 'string', description: 'Symbol name, e.g. "renderBoard", "Store.save", "QUESTIONS", "#loading-overlay"' },
-      path: { type: 'string', description: 'File or directory to search (default: project root)' },
-      body: { type: 'boolean', description: 'Include the body (default true)' },
-      max_body_lines: { type: 'integer', description: 'Body cap per match (default 150)' },
-      max_results: { type: 'integer', description: 'Max bodies returned (default 5)' },
+      name: { type: 'string', description: 'e.g. "render", "Store.save", "QUESTIONS", "#overlay"' },
+      path: { type: 'string', description: 'File or directory (default: project root)' },
+      body: { type: 'boolean', description: 'Default true' },
+      max_body_lines: { type: 'integer', description: 'Default 150' },
+      max_results: { type: 'integer', description: 'Default 5' },
       root: { type: 'string' }, max_chars: { type: 'integer' },
     }, required: ['name'] },
     annotations: { readOnlyHint: true, title: 'Find symbol' },
   },
   {
     name: 'search',
-    description: 'Fast text/regex search across the project or a path (ripgrep when available, respects .gitignore, skips binaries). Huge lines are folded so matches inside blobs stay cheap. Returns file:line groups.',
+    description: 'Literal or regex search over the project or a path (ripgrep when available, .gitignore respected, long lines folded). Returns file:line groups.',
     inputSchema: { type: 'object', properties: {
       pattern: { type: 'string' },
       path: { type: 'string', description: 'File or directory (default: project root)' },
-      regex: { type: 'boolean', description: 'Treat pattern as a regex (default false = literal)' },
+      regex: { type: 'boolean', description: 'Default false (literal)' },
       case_sensitive: { type: 'boolean', description: 'Default false' },
-      context: { type: 'integer', description: 'Context lines around each match (default 0)' },
-      include: { type: 'string', description: 'Glob to include, e.g. "*.js" or "src/**"' },
-      exclude: { type: 'string', description: 'Glob to exclude' },
+      context: { type: 'integer', description: 'Lines around each match (default 0)' },
+      include: { type: 'string', description: 'Glob, e.g. "*.js"' },
+      exclude: { type: 'string', description: 'Glob' },
       max_results: { type: 'integer', description: 'Default 60' },
-      max_line_chars: { type: 'integer', description: 'Fold lines longer than this (default 240)' },
+      max_line_chars: { type: 'integer', description: 'Default 240' },
       root: { type: 'string' }, max_chars: { type: 'integer' },
     }, required: ['pattern'] },
     annotations: { readOnlyHint: true, title: 'Search' },
   },
   {
     name: 'syntax_check',
-    description: 'Validate files after editing: JavaScript (node --check), HTML inline scripts (mapped to HTML line numbers), JSON (exact error position), Python (ast), CSS (brace balance), PowerShell (real parser), shell (bash -n), TypeScript (if the project has typescript), YAML/XML basics. Returns file:line:col messages.',
+    description: 'Syntax check of JS (acorn), HTML inline scripts, JSON, Python, CSS, PowerShell, shell, TypeScript (when installed), YAML and XML. Returns file:line:col messages.',
     inputSchema: { type: 'object', properties: {
       path: { type: 'string' },
-      paths: { type: 'array', items: { type: 'string' }, description: 'Several files at once' },
+      paths: { type: 'array', items: { type: 'string' }, description: 'Several files' },
       root: { type: 'string' }, max_chars: { type: 'integer' },
     } },
     annotations: { readOnlyHint: true, title: 'Syntax check' },
   },
   {
     name: 'file_stats',
-    description: 'Where the bytes are in a file: size, lines, longest line, blob lines (base64 data URIs, minified code) with what they belong to, script/style block map for HTML, line endings and BOM. Use before optimizing load time or splitting a file.',
+    description: 'Where the bytes are in a file: size, lines, longest line, blob lines and their owners, script/style map (HTML), line endings, BOM.',
     inputSchema: { type: 'object', properties: { path: { type: 'string' }, root: { type: 'string' }, max_chars: { type: 'integer' } }, required: ['path'] },
     annotations: { readOnlyHint: true, title: 'File stats' },
   },

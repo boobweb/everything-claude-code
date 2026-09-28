@@ -7,12 +7,14 @@
 
 const fsx = require('../lib/fsx');
 const io = require('../lib/hookio');
+const options = require('../lib/options');
 
 const BIG = 2 * 1024 * 1024;      // a Write over a file this large always asks
 const SHRINK_MIN = 48 * 1024;     // shrink check applies to files at least this large
 const SHRINK_RATIO = 0.6;         // new size below 60% of old size -> ask
 
 io.main(async (input) => {
+  if (options.guardLevel() !== 'strict') return 0; // this guard only ever asks; deny-only and off skip it
   const ti = input.tool_input || {};
   const file = io.editedPath(input);
   if (!file) return 0;

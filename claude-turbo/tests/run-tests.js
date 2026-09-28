@@ -163,8 +163,13 @@ function testHooks() {
   let h = hook('hook-session-start.js', { session_id: 'T', cwd: FIX, hook_event_name: 'SessionStart', source: 'startup' });
   const ctx = h.json && h.json.hookSpecificOutput && h.json.hookSpecificOutput.additionalContext;
   check('session-start emits additionalContext JSON', h.status === 0 && typeof ctx === 'string', h.stdout + h.stderr);
-  check('session-start brief has stack, git, layout, large files, toolkit facts', ctx && /Stack: node\/npm/.test(ctx) && /Git: branch main/.test(ctx) && /Layout:/.test(ctx) && /index\.html 360KB/.test(ctx) && /mcp__plugin_turbo_code__repo_map/.test(ctx), ctx);
-  check('session-start brief under 6000 chars', ctx && ctx.length < 6000, ctx && String(ctx.length));
+  check('session-start brief has stack, check commands, large files with blob share, toolkit line', ctx && /Stack: node\/npm/.test(ctx) && /Checks: npm test/.test(ctx) && /index\.html 360KB/.test(ctx) && /mcp__plugin_turbo_code__repo_map/.test(ctx), ctx);
+  check('session-start brief omits what Claude Code already shows (git status, commits, layout, cwd)', ctx && !/Git:|branch main|Recent commits|Layout:|Project root/.test(ctx), ctx);
+  check('session-start brief under 1200 chars without a handoff note', ctx && ctx.length < 1200, ctx && String(ctx.length));
+  h = hook('hook-session-start.js', { session_id: 'OPT', cwd: FIX, source: 'startup' }, { CLAUDE_PLUGIN_OPTION_BRIEF: 'false' });
+  check('session-start: brief option off -> no output, session state still opened', h.status === 0 && h.stdout.trim() === '' && fs.existsSync(path.join(DATA, 'sessions', 'OPT.json')), h.stdout + h.stderr);
+  h = hook('hook-session-start.js', { session_id: 'T', cwd: FIX, source: 'startup' }, { CLAUDE_PLUGIN_OPTION_GUARD_LEVEL: 'deny-only', CLAUDE_PLUGIN_OPTION_STOP_CHECK: '0' });
+  check('session-start brief names non-default options', h.json && /options: stop check off, guards deny-only/.test(h.json.hookSpecificOutput.additionalContext), h.stdout);
   fs.mkdirSync(path.join(FIX, '.claude'), { recursive: true });
   fs.writeFileSync(path.join(FIX, '.claude', 'turbo-handoff.md'), '# Handoff\n- Done: wired the thing\n- Next: test it\n');
   h = hook('hook-session-start.js', { session_id: 'T', cwd: FIX, source: 'resume' });
@@ -200,6 +205,8 @@ function testHooks() {
   check('pre-write silent for new files', h.stdout.trim() === '');
   h = hook('hook-pre-write.js', { session_id: 'T', cwd: FIX, tool_name: 'Write', tool_input: { file_path: path.join(FIX, 'src', 'app.js'), content: 'const a = 1;\n// ... rest of the file unchanged\n' } });
   check('pre-write asks on placeholder content', h.json && h.json.hookSpecificOutput.permissionDecision === 'ask' && /placeholder/.test(h.json.hookSpecificOutput.permissionDecisionReason), h.stdout);
+  h = hook('hook-pre-write.js', { session_id: 'T', cwd: FIX, tool_name: 'Write', tool_input: { file_path: path.join(FIX, 'index.html'), content: big.slice(0, 20000) } }, { CLAUDE_PLUGIN_OPTION_GUARD_LEVEL: 'deny-only' });
+  check('pre-write is silent under guard_level deny-only', h.stdout.trim() === '', h.stdout);
 
   const bash = (command) => hook('hook-pre-bash.js', { session_id: 'T', cwd: FIX, tool_name: 'Bash', tool_input: { command } });
   const decision = (h2) => (h2.json ? h2.json.hookSpecificOutput.permissionDecision : 'allow');
@@ -208,9 +215,17 @@ function testHooks() {
   for (const cmd of ['rm -rf node_modules dist', 'rm -rf ./build', `rm -rf ${path.join(FIX, 'dist')}`, `rm -rf "${path.join(FIX, 'my dir')}"`, `rm -rf ${path.join(os.tmpdir(), 'scratch-xyz')}`, 'git status', 'npm test', 'ls -la', 'git push origin feature', 'rm -f file.txt', 'python -m http.server 8000', 'rmdir /s /q build', 'rmdir build', 'Remove-Item -Recurse -Force .\\dist', 'Remove-Item .\\dist -Recurse', 'echo "rm -rf / is bad" > note.txt', 'git commit -m "remove-item cleanup"', 'grep -r "TRUNCATE TABLE" src/', 'echo "DROP TABLE users" >> notes.sql', 'cd build && rm -rf *', 'git branch -D feature-x']) check(`pre-bash allows: ${cmd}`, decision(bash(cmd)) === 'allow', JSON.stringify(bash(cmd).json));
   const askOut = bash('git reset --hard HEAD~1').json;
   check('pre-bash ask carries additionalContext for Claude', askOut && typeof askOut.hookSpecificOutput.additionalContext === 'string');
+  const bashOpt = (command, level) => hook('hook-pre-bash.js', { session_id: 'T', cwd: FIX, tool_name: 'Bash', tool_input: { command } }, { CLAUDE_PLUGIN_OPTION_GUARD_LEVEL: level });
+  check('pre-bash guard_level deny-only: still denies rm -rf /, no longer asks on reset --hard', decision(bashOpt('rm -rf /', 'deny-only')) === 'deny' && decision(bashOpt('git reset --hard HEAD~1', 'deny-only')) === 'allow', JSON.stringify([bashOpt('rm -rf /', 'deny-only').json, bashOpt('git reset --hard HEAD~1', 'deny-only').json]));
+  check('pre-bash guard_level off: silent even on rm -rf /', decision(bashOpt('rm -rf /', 'off')) === 'allow' && bashOpt('rm -rf /', 'off').stdout.trim() === '');
+  check('pre-bash guard_level accepts DENY_ONLY spelling and ignores unknown values', decision(bashOpt('git reset --hard HEAD~1', 'DENY_ONLY')) === 'allow' && decision(bashOpt('git reset --hard HEAD~1', 'bogus')) === 'ask');
 
+  h = hook('hook-stop.js', { session_id: 'T', cwd: FIX, stop_hook_active: false }, { CLAUDE_PLUGIN_OPTION_STOP_CHECK: 'false' });
+  check('stop is silent when the stop_check option is off', h.status === 0 && h.stdout.trim() === '', h.stdout);
+  const t0stop = Date.now();
   h = hook('hook-stop.js', { session_id: 'T', cwd: FIX, stop_hook_active: false });
   check('stop blocks when a recorded edited file is broken', h.json && h.json.decision === 'block' && /bad\.js:4:1/.test(h.json.reason), h.stdout + h.stderr);
+  check('stop check finishes well inside its 12 s budget on the fixture', Date.now() - t0stop < 12000, String(Date.now() - t0stop));
   h = hook('hook-stop.js', { session_id: 'T', cwd: FIX, stop_hook_active: true });
   check('stop never blocks twice (stop_hook_active)', h.stdout.trim() === '');
   h = hook('hook-stop.js', { session_id: 'FRESH', cwd: FIX, stop_hook_active: false });

@@ -70,6 +70,14 @@ function run(check, { PLUGIN, FIX }) {
   check('humanSize / countLines', fsx.humanSize(1536) === '1.5KB' && fsx.humanSize(3 * 1048576) === '3.0MB' && fsx.countLines('a\nb\n') === 2 && fsx.countLines('a\nb') === 2 && fsx.countLines('') === 0);
   check('makeGlobMatcher: *.js, src/**, braces', fsx.makeGlobMatcher('*.js')('a/b.js') && !fsx.makeGlobMatcher('*.js')('a/b.ts') && fsx.makeGlobMatcher('src/**')('src/x/y.js') && !fsx.makeGlobMatcher('src/**')('lib/x.js') && fsx.makeGlobMatcher('*.{js,ts}')('q.ts'));
   check('findProjectRoot: walks up to the fixture git root', fsx.findProjectRoot(path.join(FIX, 'src')) === FIX, fsx.findProjectRoot(path.join(FIX, 'src')));
+
+  // ---- user options (CLAUDE_PLUGIN_OPTION_<KEY>) ----
+  const options = require(path.join(PLUGIN, 'lib', 'options'));
+  const withEnv = (env, fn) => { const saved = {}; for (const k of Object.keys(env)) { saved[k] = process.env[k]; if (env[k] == null) delete process.env[k]; else process.env[k] = env[k]; } try { return fn(); } finally { for (const k of Object.keys(env)) { if (saved[k] == null) delete process.env[k]; else process.env[k] = saved[k]; } } };
+  check('options: defaults when nothing is set', withEnv({ CLAUDE_PLUGIN_OPTION_BRIEF: null, CLAUDE_PLUGIN_OPTION_STOP_CHECK: null, CLAUDE_PLUGIN_OPTION_GUARD_LEVEL: null }, () => options.brief() === true && options.stopCheck() === true && options.guardLevel() === 'strict' && options.summary() === ''));
+  check('options: boolean spellings false/0/off/no/disabled -> off, anything else -> on', ['false', '0', 'off', 'No', 'DISABLED', 'disable'].every((v) => withEnv({ CLAUDE_PLUGIN_OPTION_BRIEF: v }, () => options.brief() === false)) && ['true', '1', 'on', 'yes'].every((v) => withEnv({ CLAUDE_PLUGIN_OPTION_BRIEF: v }, () => options.brief() === true)));
+  check('options: blank value means default', withEnv({ CLAUDE_PLUGIN_OPTION_STOP_CHECK: '   ' }, () => options.stopCheck() === true));
+  check('options: guard_level normalizes case and underscores, rejects unknown values', withEnv({ CLAUDE_PLUGIN_OPTION_GUARD_LEVEL: 'Deny_Only' }, () => options.guardLevel() === 'deny-only') && withEnv({ CLAUDE_PLUGIN_OPTION_GUARD_LEVEL: 'lenient' }, () => options.guardLevel() === 'strict') && withEnv({ CLAUDE_PLUGIN_OPTION_GUARD_LEVEL: 'off' }, () => options.summary() === 'guards off'));
 }
 
 module.exports = { run };

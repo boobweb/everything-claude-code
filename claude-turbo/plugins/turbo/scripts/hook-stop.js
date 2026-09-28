@@ -9,12 +9,16 @@ const fsx = require('../lib/fsx');
 const check = require('../lib/check');
 const git = require('../lib/git');
 const io = require('../lib/hookio');
+const options = require('../lib/options');
 
-const TIME_BUDGET_MS = 40000;
+// Hard cap: the user is waiting at the end of every turn. Files past the budget are skipped and
+// reported as such (acorn checks are milliseconds; PowerShell/Python spawns are the slow ones).
+const TIME_BUDGET_MS = 12000;
 const MAX_FILES = 40;
 
 io.main(async (input) => {
   if (input.stop_hook_active) return 0;
+  if (!options.stopCheck()) return 0;
   const cwd = input.cwd && fsx.isDir(input.cwd) ? input.cwd : process.cwd();
   const root = fsx.findProjectRoot(cwd);
   const sid = input.session_id || 'unknown';

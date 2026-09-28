@@ -8,7 +8,7 @@
             "type": "command",
             "command": "node",
             "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook-session-start.js"],
-            "timeout": 20,
+            "timeout": 15,
             "statusMessage": "Turbo: briefing on the project"
           }
         ]
@@ -22,7 +22,7 @@
             "type": "command",
             "command": "node",
             "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook-post-edit.js"],
-            "timeout": 60,
+            "timeout": 30,
             "statusMessage": "Turbo: checking syntax"
           }
         ]
@@ -59,7 +59,7 @@
             "type": "command",
             "command": "node",
             "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/hook-stop.js"],
-            "timeout": 90,
+            "timeout": 20,
             "statusMessage": "Turbo: verifying edited files"
           }
         ]
