@@ -154,6 +154,42 @@ function run(check, { PLUGIN, DATA }) {
   fs.writeFileSync(path.join(q4, 'manifest.json'), JSON.stringify({ roots: [root], claudeDir, moved: [{ from: path.join(os.tmpdir(), `turbo-outside-target-${process.pid}.txt`), to: path.join(q4, 'x.txt'), category: 'junk' }], removedEmptyDirs: [] }));
   const u4 = cli(['--undo', q4]);
   check('tidy --undo: a restore destination outside the scanned roots and the Claude directory is refused', u4.status === 0 && fs.existsSync(path.join(q4, 'x.txt')) && /refused/.test(u4.stdout), u4.stdout + u4.stderr);
+  // 12. desktop.ini is never junk; a program's own folder (an .exe, or a macOS .app bundle) is a unit like a project
+  const root3 = path.join(DATA, 'tidy-root3');
+  fs.rmSync(root3, { recursive: true, force: true });
+  const W3 = (rel, content) => { const p = path.join(root3, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, content); return p; };
+  const D3 = (rel) => fs.mkdirSync(path.join(root3, rel), { recursive: true });
+  const dll = rnd(5000, 21); const setup = rnd(6000, 22);
+  W3('Downloads/desktop.ini', '[.ShellClassInfo]\r\nLocalizedResourceName=@shell32.dll,-21798\r\n'); W3('Downloads/Pictures/desktop.ini', '[.ShellClassInfo]\r\n'); W3('Downloads/Thumbs.db', 'thumbs');
+  W3('Downloads/setup.exe', setup); W3('Downloads/setup (1).exe', setup); // installers loose in Downloads: Downloads is never an app folder
+  W3('Downloads/BG3ModManager_Latest/BG3ModManager.exe', rnd(7000, 23)); D3('Downloads/BG3ModManager_Latest/Data'); D3('Downloads/BG3ModManager_Latest/Orders');
+  W3('Downloads/BetterJoy_v7.1/BetterJoyForCemu.exe', rnd(7000, 24)); W3('Downloads/BetterJoy_v7.1/! Install the drivers in the Drivers folder', ''); W3('Downloads/BetterJoy_v7.1/ViGEm.dll', dll); D3('Downloads/BetterJoy_v7.1/Drivers/HidCerberus/Content/custom');
+  W3('Downloads/OtherApp/other.exe', rnd(7000, 25)); W3('Downloads/OtherApp/ViGEm.dll', dll); // the same DLL shipped by two apps: neither copy is an extra
+  W3('Downloads/loose/ViGEm.dll', dll); // a loose copy of it is
+  W3('Apps/Foo.app/Contents/MacOS/foo', rnd(3000, 26)); D3('Apps/Foo.app/Contents/Resources/empty');
+  D3('Downloads/Quick Share'); W3('Downloads/notes/empty.txt', '');
+  const p4 = tidy.buildReport([root3], { ...tidy.parseArgs([root3, '--claude-dir', claudeDir, '--quiet']) }, () => {});
+  check('tidy: desktop.ini is never junk (it holds the folder icon and name); Thumbs.db still is', p4.junk.length === 1 && /Thumbs\.db$/.test(p4.junk[0].abs) && !p4.junk.some((j) => /desktop\.ini$/i.test(j.abs)), JSON.stringify(p4.junk));
+  check('tidy: folders holding an .exe and a macOS .app bundle are app folders; Downloads itself is not', p4.projects.apps === 4 && p4.projects.count === 0, JSON.stringify(p4.projects));
+  check('tidy: empty folders inside apps (Data, Orders, driver Content/custom, .app Resources) are left alone; a loose one is reported', p4.emptyDirs.length === 1 && /Quick Share$/.test(p4.emptyDirs[0]), JSON.stringify(p4.emptyDirs));
+  check('tidy: a 0-byte instruction file inside an app is not an empty file; a loose 0-byte file is', p4.emptyFiles.length === 1 && /notes[\\/]empty\.txt$/.test(p4.emptyFiles[0]), JSON.stringify(p4.emptyFiles));
+  const dllGroup = p4.duplicates.find((g) => /ViGEm\.dll$/.test(g.keep));
+  const setupGroup = p4.duplicates.find((g) => /setup/.test(g.keep));
+  check('tidy: a DLL shipped by two apps stays in both; only the loose copy is an extra', !!dllGroup && dllGroup.extra.length === 1 && /loose[\\/]ViGEm\.dll$/.test(dllGroup.extra[0]) && /(BetterJoy_v7\.1|OtherApp)[\\/]ViGEm\.dll$/.test(dllGroup.keep), JSON.stringify(p4.duplicates));
+  check('tidy: duplicate installers loose in Downloads are still found (a setup.exe does not make Downloads an app)', !!setupGroup && /setup\.exe$/.test(setupGroup.keep) && setupGroup.extra.length === 1 && /setup \(1\)\.exe$/.test(setupGroup.extra[0]), JSON.stringify(p4.duplicates));
+  check('tidy: the text report counts app folders as units', /4 app folder\(s\)[^\n]*treated as units/.test(tidy.printReport(p4, opts)), tidy.printReport(p4, opts).split('\n')[2]);
+  const dl3 = path.join(root3, 'Downloads');
+  const p5 = tidy.buildReport([dl3], { ...tidy.parseArgs([dl3, '--claude-dir', claudeDir, '--quiet']) }, () => {});
+  check('tidy: scanning Downloads directly finds the three apps inside it and still reports the loose installer copy', p5.projects.apps === 3 && p5.duplicates.some((g) => /setup/.test(g.keep)), JSON.stringify(p5.projects));
+  const bg3 = path.join(dl3, 'BG3ModManager_Latest');
+  const p6 = tidy.buildReport([bg3], { ...tidy.parseArgs([bg3, '--claude-dir', claudeDir, '--quiet']) }, () => {});
+  check('tidy: scanning an app folder directly still treats it as an app (its empty Data and Orders stay)', p6.projects.apps === 1 && p6.emptyDirs.length === 0, JSON.stringify([p6.projects, p6.emptyDirs]));
+  const a5 = cli([root3, '--claude-dir', claudeDir, '--apply', '--only', 'duplicates,empty,junk', '--quiet', '--json']);
+  let a5j = null; try { a5j = JSON.parse(a5.stdout.slice(a5.stdout.indexOf('{'))); } catch { /* */ }
+  const kept3 = ['Downloads/desktop.ini', 'Downloads/Pictures/desktop.ini', 'Downloads/BG3ModManager_Latest/Data', 'Downloads/BetterJoy_v7.1/! Install the drivers in the Drivers folder', 'Downloads/BetterJoy_v7.1/Drivers/HidCerberus/Content/custom', 'Downloads/BetterJoy_v7.1/ViGEm.dll', 'Downloads/OtherApp/ViGEm.dll', 'Apps/Foo.app/Contents/Resources/empty', 'Downloads/setup.exe'];
+  const gone3 = ['Downloads/Thumbs.db', 'Downloads/loose/ViGEm.dll', 'Downloads/Quick Share', 'Downloads/setup (1).exe', 'Downloads/notes/empty.txt'];
+  const at3 = (rel) => fs.existsSync(path.join(root3, ...rel.split('/')));
+  check('tidy --apply: desktop.ini files and app folders (their empty folders, 0-byte files, DLLs) stay; Thumbs.db, loose copies and loose empties move', a5.status === 0 && !!a5j && kept3.every(at3) && !gone3.some(at3), JSON.stringify({ missing: kept3.filter((r) => !at3(r)), stillThere: gone3.filter(at3) }) + a5.stderr);
   void os;
 }
 

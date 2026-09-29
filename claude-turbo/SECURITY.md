@@ -30,7 +30,7 @@ Out of scope: a malicious user of the machine (the plugin runs as them), sandbox
 
 **Smoke server** (`scripts/smoke.js`): the static server used by `/turbo:smoke` serves only paths inside the served folder, judged with `path.relative` after URL decoding, so `/%2e%2e%2f...` cannot reach a sibling folder whose name starts with the root's name.
 
-**tidy**: never deletes; `--apply` moves into a quarantine folder with a manifest that is rewritten after every move and an append-only `moves.log`; `--undo` restores only entries that point into that quarantine folder; overlapping roots are scanned once (a file cannot be its own duplicate); project folders are units (nothing inside them is a duplicate or an empty file unless `--include-projects`); `__init__.py`, `.gitkeep`, dotfiles and code stubs are never "empty files"; nothing under `~/.claude/plugins` is ever moved.
+**tidy**: never deletes; `--apply` moves into a quarantine folder with a manifest that is rewritten after every move and an append-only `moves.log`; `--undo` restores only entries that point into that quarantine folder; overlapping roots are scanned once (a file cannot be its own duplicate); project folders and program folders (an `.exe` or a macOS `.app` bundle directly inside) are units (nothing inside them is a duplicate or an empty file unless `--include-projects`); `__init__.py`, `.gitkeep`, dotfiles and code stubs are never "empty files"; `desktop.ini` is never junk; nothing under `~/.claude/plugins` is ever moved.
 
 ## What the guards do not do
 

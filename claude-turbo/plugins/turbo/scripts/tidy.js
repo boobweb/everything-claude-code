@@ -12,7 +12,8 @@
 // Categories:
 //   duplicates  byte-identical files (size, then head hash, then full hash); one copy is kept
 //   empty       zero-byte files and directories with nothing in them
-//   junk        Thumbs.db, .DS_Store, desktop.ini, Office lock files (~$x.docx), stale *.tmp/*.part/*.crdownload
+//   junk        Thumbs.db, .DS_Store, Office lock files (~$x.docx), stale *.tmp/*.part/*.crdownload
+//               (desktop.ini is never junk: Windows keeps a folder's icon and display name in it)
 //   ai          Claude Code leftovers: transcripts of projects that no longer exist, old CLI logs, stale plugin data
 //   heavy       node_modules, virtualenvs, build caches untouched for a long time (report only, regenerable)
 //   archives    an archive next to a folder of the same name (report only: probably already extracted)
@@ -20,8 +21,9 @@
 // Options: --min-size <bytes> (duplicates, default 1024)  --older-than <days> (junk/ai/heavy age, default 30)
 //          --exclude <glob> (repeatable)  --max-files <n> (default 400000)  --limit <n> (items listed per category)
 //          --claude-dir <dir> (default ~/.claude)  --include-heavy (also quarantine heavy items with --apply)
-//          --include-projects (files inside project folders may be quarantined; by default a folder holding
-//          .git, package.json, pyproject.toml etc. is a unit: nothing in it is a duplicate or an empty file)
+//          --include-projects (files inside project and app folders may be quarantined; by default a folder holding
+//          .git, package.json, pyproject.toml etc., or a program (.exe, a macOS .app bundle), is a unit: nothing in it
+//          is a duplicate or an empty file)
 //          --all (do not skip system folders)  --quiet
 
 const fs = require('fs');
@@ -67,12 +69,17 @@ const SKIP_DIR_NAMES = new Set(['.git', '.hg', '.svn', '$RECYCLE.BIN', 'System V
 const FS_ROOT_ONLY_SKIP = new Set(['proc', 'sys', 'dev', 'run']); // kernel pseudo-filesystems: skipped only directly under / (a ~/dev folder is user data)
 // A folder holding one of these is a project: its files are never duplicates of each other or of another project's, and its 0-byte files are placeholders, not clutter
 const PROJECT_MARKERS = ['.git', 'package.json', 'pyproject.toml', 'setup.py', 'setup.cfg', 'requirements.txt', 'Cargo.toml', 'go.mod', 'pom.xml', 'build.gradle', 'composer.json', 'Gemfile', 'CMakeLists.txt', 'Makefile', 'CLAUDE.md', '.sln', '.csproj', 'mix.exs', 'Package.swift'];
+// A folder that directly holds a program (.exe), or a macOS .app bundle, is an installed or portable app and is a unit the same way:
+// its empty folders (Config, Logs, Data it fills later) and 0-byte files belong to it. Drive roots, the home folder and the folders
+// installers are downloaded or saved into are never apps, or one setup.exe sitting in Downloads would hide everything around it.
+const NEVER_APP_DIR_RE = /^(Downloads|Desktop|Documents|OneDrive)$/i;
 // 0-byte files that are load-bearing by name or type (module markers, keep files, empty configs and stubs)
 const PLACEHOLDER_NAME_RE = /^(__init__\.py|__init__\.pyi|py\.typed|\.gitkeep|\.keep|\.gitignore|\.nojekyll|\.npmignore|\.hgkeep|\.placeholder|\.htaccess|CNAME|Procfile|\.env(\..*)?|\..+)$/i;
 const CODE_EXT_RE = /\.(py|pyi|js|mjs|cjs|ts|tsx|jsx|json|yml|yaml|toml|ini|cfg|conf|lock|go|rs|java|c|h|cpp|hpp|cc|cs|rb|php|sql|sh|ps1|psm1|bat|cmd|html|htm|css|scss|xml|gradle|properties)$/i;
 const SYSTEM_DIR_RE = /^(Windows|Program Files|Program Files \(x86\)|ProgramData|PerfLogs|Library|System|private|usr|bin|sbin|lib|lib64|etc|var|boot|opt|snap|run)$/i;
 const HEAVY_DIR_RE = /^(node_modules|\.venv|venv|__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.tox|\.gradle|\.nuxt|\.next|\.turbo|\.parcel-cache|\.cache|target|Pods|DerivedData|bower_components|\.pnpm-store)$/;
-const JUNK_NAME_RE = /^(Thumbs\.db|ehthumbs\.db|\.DS_Store|desktop\.ini|\._.*)$/i;
+// desktop.ini is not junk: Windows keeps a folder's icon and display name in it (Downloads, Pictures, Screenshots)
+const JUNK_NAME_RE = /^(Thumbs\.db|ehthumbs\.db|\.DS_Store|\._.*)$/i;
 const OFFICE_LOCK_RE = /^~\$.+\.(docx?|xlsx?|pptx?|dotx?|xlsm|pptm)$/i;
 const STALE_TEMP_RE = /\.(tmp|temp|part|crdownload|download|partial|swp|swo)$/i;
 const ARCHIVE_RE = /\.(zip|7z|rar|tar|tgz|tar\.gz|tar\.bz2|tar\.xz)$/i;
@@ -111,11 +118,20 @@ function normalizeRoots(roots, log) {
   return out.map((o) => o.abs);
 }
 
+const sameDir = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
+/** True when dir is an installed or portable program: it directly holds an .exe, or it is a macOS *.app bundle. */
+function isAppFolder(dir, entries) {
+  if (path.parse(dir).root === dir || sameDir(dir, os.homedir()) || NEVER_APP_DIR_RE.test(path.basename(dir))) return false;
+  if (/\.app$/i.test(dir)) return entries.some((e) => e.name === 'Contents' && e.isDirectory());
+  return entries.some((e) => e.isFile() && /\.exe$/i.test(e.name));
+}
+
 function scan(roots, opts, log) {
   const files = [];          // { abs, size, mtimeMs, name, root, project? }
   const emptyDirs = [];      // abs
   const heavy = [];          // { abs, size, files, mtimeMs }
   const projects = [];       // abs of every project folder seen
+  const apps = [];           // abs of every app folder seen (a program's own folder, treated like a project)
   const excludes = opts.exclude.map(globToRe);
   const seen = new Set();
   const t0 = Date.now();
@@ -129,6 +145,7 @@ function scan(roots, opts, log) {
     visitedDirs++;
     if (!opts.quiet && Date.now() - lastReport > 2000) { lastReport = Date.now(); log(`  scanning… ${files.length.toLocaleString('en-US')} files, ${visitedDirs.toLocaleString('en-US')} folders, ${Math.round((Date.now() - t0) / 1000)}s`); }
     if (!project && entries.some((e) => PROJECT_MARKERS.some((m) => m.startsWith('.') && m.length > 4 && !m.startsWith('.git') ? e.name.toLowerCase().endsWith(m) : e.name === m))) { project = dir; projects.push(dir); }
+    else if (!project && isAppFolder(dir, entries)) { project = dir; apps.push(dir); }
     const isFsRoot = path.parse(dir).root === dir;
     let size = 0, count = 0, newest = 0, hasAnything = false;
     for (const e of entries) {
@@ -182,7 +199,7 @@ function scan(roots, opts, log) {
     if (r.empty) emptyDirs.push(root);
   }
   void now;
-  return { files, emptyDirs, heavy, projects, truncated, visitedDirs, elapsedMs: Date.now() - t0 };
+  return { files, emptyDirs, heavy, projects, apps, truncated, visitedDirs, elapsedMs: Date.now() - t0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -553,7 +570,7 @@ function buildReport(roots, opts, log) {
     heavy: heavy.reduce((n, h) => n + h.size, 0),
     archives: archives.reduce((n, a) => n + a.size, 0),
   };
-  const projects = { count: s.projects.length, files: s.files.filter((f) => f.project).length, protectedDuplicateGroups: duplicates.protectedGroups || 0, included: !!opts.includeProjects };
+  const projects = { count: s.projects.length, apps: s.apps.length, files: s.files.filter((f) => f.project).length, protectedDuplicateGroups: duplicates.protectedGroups || 0, included: !!opts.includeProjects };
   return { roots, scanned: { files: s.files.length, dirs: s.visitedDirs, bytes: totalBytes, ms: s.elapsedMs, truncated: s.truncated }, projects, duplicates, emptyFiles, emptyDirs: s.emptyDirs, junk, ai, heavy, archives, reclaim };
 }
 
@@ -561,7 +578,8 @@ function printReport(r, opts) {
   const L = [];
   L.push(`Turbo tidy report for ${r.roots.join(', ')}`);
   L.push(`scanned ${r.scanned.files.toLocaleString('en-US')} files in ${r.scanned.dirs.toLocaleString('en-US')} folders (${human(r.scanned.bytes)}) in ${(r.scanned.ms / 1000).toFixed(1)}s${r.scanned.truncated ? ` — STOPPED at --max-files ${opts.maxFiles}; scan a subfolder or raise the limit` : ''}`);
-  if (r.projects && r.projects.count) L.push(`${r.projects.count} project folder(s) (${r.projects.files.toLocaleString('en-US')} files) ${r.projects.included ? 'included' : `treated as units: nothing inside them is a duplicate or an empty file${r.projects.protectedDuplicateGroups ? ` (${r.projects.protectedDuplicateGroups} identical-file groups left alone)` : ''}; pass --include-projects to include them`}`);
+  const units = r.projects ? [r.projects.count ? `${r.projects.count} project folder(s)` : '', r.projects.apps ? `${r.projects.apps} app folder(s)` : ''].filter(Boolean).join(' and ') : '';
+  if (units) L.push(`${units} (${r.projects.files.toLocaleString('en-US')} files) ${r.projects.included ? 'included' : `treated as units: nothing inside them is a duplicate or an empty file${r.projects.protectedDuplicateGroups ? ` (${r.projects.protectedDuplicateGroups} identical-file groups left alone)` : ''}; pass --include-projects to include them`}`);
   L.push('');
   const lim = opts.limit;
   L.push(`DUPLICATES: ${r.duplicates.length} group(s), ${human(r.reclaim.duplicates)} in extra copies (the kept copy is listed first)`);

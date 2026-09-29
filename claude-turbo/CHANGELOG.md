@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.1 (2026-09-29)
+
+Two tidy fixes found on a real Downloads folder.
+
+### Fixed
+- **`desktop.ini` is no longer junk.** Windows keeps a folder's icon and display name in it (Downloads, Pictures, Screenshots), so quarantining it changed how those folders look in File Explorer.
+- **Program folders are units.** A folder that directly holds an `.exe`, or a macOS `.app` bundle, is treated like a project folder: the empty folders a program expects (Config, Logs, Data), its 0-byte instruction files and its bundled DLLs are never reported, and a DLL shipped by two programs stays in both. Drive roots, the home folder and folders named Downloads, Desktop, Documents or OneDrive never count as programs, so loose installers there are still checked for duplicates. The report counts app folders next to project folders; `--include-projects` covers both.
+
 ## 2.0.0 (2026-09-28)
 
 Real parsers, less context, continuity, measured evals, cross-platform CI, and a cleanup tool.
@@ -31,7 +39,7 @@ Real parsers, less context, continuity, measured evals, cross-platform CI, and a
 
 ### Fixed
 - Syntax checking could not see errors in ESM-style `.js` files on Node 22 and newer: `node --check some.js` exits 0 for auto-detected ES modules even with syntax errors or JSX. Acorn is now the primary checker and node confirms with strict `.cjs`/`.mjs` temp files.
-- Skill frontmatter contained values that are invalid YAML (`argument-hint: [file] [what to change]`, descriptions with `: `). Newer `claude plugin validate` rejects them and the skill would load with empty metadata. All values are quoted and a test parses every skill and agent frontmatter.
+- Skill frontmatter contained values that are invalid YAML (`argument-hint: [file] [what to change]`, descriptions containing a colon followed by a space). Newer `claude plugin validate` rejects them and the skill would load with empty metadata. All values are quoted and a test parses every skill and agent frontmatter.
 - Nested Python classes are qualified (`Outer.Inner.method`); TypeScript constructors are listed.
 
 ### Compatibility

@@ -15,14 +15,14 @@ Target: $ARGUMENTS (if empty, ask which folder or drive to scan; suggest the use
 - **Quarantine, never delete.** `--apply` moves items into `<root>/_turbo-quarantine/<timestamp>/` with a `manifest.json`; `--undo <that folder>` restores every item. Tell the user both paths. The user deletes the quarantine folder themselves once they are sure, typically after a week.
 - **Only the categories the user chose.** Default apply set is `duplicates,empty,junk,ai`. `heavy` (node_modules, virtualenvs, caches) and `archives` are report-only unless the user explicitly asks; heavy folders are regenerable but moving gigabytes takes time.
 - Scanning is read-only and safe on any folder, including a whole drive; system folders are skipped unless `--all`. A whole drive can take minutes: say so, and prefer starting with the user's home folder.
-- **Project folders are units.** A folder holding `.git`, `package.json`, `pyproject.toml` and the like is never touched from the inside: its files are not duplicates of another project's, its `__init__.py`/`.gitkeep`/empty stubs are not clutter. The report says how many project folders it saw. Only if the user explicitly wants their code folders deduplicated add `--include-projects`, and say what that means.
+- **Project and app folders are units.** A folder holding `.git`, `package.json`, `pyproject.toml` and the like, or a program (an `.exe`, a macOS `.app` bundle), is never touched from the inside: its files are not duplicates of another project's or program's, and its `__init__.py`/`.gitkeep`/empty stubs and the empty folders a program expects are not clutter. The report says how many project and app folders it saw. Only if the user explicitly wants their code folders deduplicated add `--include-projects` (it covers app folders too), and say what that means.
 - Pass one root, or roots that do not overlap; the script scans nested roots once anyway.
 - Do not run any other delete command as part of this skill.
 
 ## Procedure
 
 1. Scan: `node "${CLAUDE_PLUGIN_ROOT}/scripts/tidy.js" <target> --limit 15` (add `--older-than <days>` if given; `--json` when you need exact lists). On Windows use the PowerShell tool with the same command.
-2. Summarize in 6 lines or fewer: files scanned, project folders left alone, reclaimable size per category, the three biggest duplicate groups, anything surprising (e.g. transcripts of deleted projects). Point out that the kept copy in each duplicate group is the one inside a project if any, else the one not named like a copy and in the shortest path.
+2. Summarize in 6 lines or fewer: files scanned, project and app folders left alone, reclaimable size per category, the three biggest duplicate groups, anything surprising (e.g. transcripts of deleted projects). Point out that the kept copy in each duplicate group is the one inside a project if any, else the one not named like a copy and in the shortest path.
 3. Ask the user which categories to quarantine (offer the default set), and whether to include heavy folders.
 4. Apply exactly that: `node "${CLAUDE_PLUGIN_ROOT}/scripts/tidy.js" <target> --apply --only <cats>` (add `--include-heavy` only if asked).
 5. Report: how many items moved, total size, the quarantine folder path, and the one-line undo command. Suggest a date to delete the quarantine folder.
