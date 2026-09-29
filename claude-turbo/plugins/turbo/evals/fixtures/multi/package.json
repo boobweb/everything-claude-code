@@ -1,0 +1,10 @@
+{
+  "name": "arena-fixture",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "node -e \"process.exit(0)\"",
+    "lint": "echo lint",
+    "build": "echo build"
+  },
+  "devDependencies": {}
+}

@@ -1,0 +1,16 @@
+TURBO FOR CLAUDE CODE  (v2.0.0)
+
+Windows:
+  1. Unzip this folder anywhere.
+  2. Right-click inside the folder > Open in Terminal (PowerShell), then run:   .\install.ps1
+     (if scripts are blocked:  powershell -ExecutionPolicy Bypass -File .\install.ps1 )
+  3. Start Claude Code in any project and type:  /turbo:help
+
+macOS / Linux:   ./install.sh
+
+Needs Node.js 18+ and Claude Code. Nothing else (Python, ripgrep, typescript and Playwright are optional extras).
+Options (brief, stop check, guard level):  /plugin configure turbo   inside Claude Code
+Clean up a drive:                          /turbo:tidy C:\Users\you   (reports first, never deletes)
+Update:    unzip the new kit and run the installer again, then /reload-plugins
+Uninstall: node "$env:USERPROFILE\.claude\turbo-kit\install.js" --uninstall   (PowerShell; in cmd.exe use %USERPROFILE%)
+Docs: README.md (use), ARCHITECTURE.md (how it works), EVALS.md (measured numbers), CHANGELOG.md
