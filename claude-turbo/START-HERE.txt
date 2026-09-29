@@ -1,4 +1,4 @@
-TURBO FOR CLAUDE CODE  (v2.0.0)
+TURBO FOR CLAUDE CODE  (v2.0.1)
 
 Windows:
   1. Unzip this folder anywhere.
